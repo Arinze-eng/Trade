@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradePro - Advanced Trading Platform</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <i class="fas fa-chart-line"></i>
+                <span>TradePro</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active">Markets</a>
+                <a href="#" class="nav-item">Portfolio</a>
+                <a href="#" class="nav-item">Watchlist</a>
+                <a href="#" class="nav-item">News</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search symbols..." id="symbolSearch">
+            </div>
+            <div class="user-menu">
+                <button class="btn-primary">Sign In</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3>Watchlist</h3>
+                <div class="watchlist" id="watchlist">
+                    <div class="watchlist-item">
+                        <div class="symbol">AAPL</div>
+                        <div class="price">$150.25</div>
+                        <div class="change positive">+2.15%</div>
+                    </div>
+                    <div class="watchlist-item">
+                        <div class="symbol">GOOGL</div>
+                        <div class="price">$2,845.30</div>
+                        <div class="change negative">-1.25%</div>
+                    </div>
+                    <div class="watchlist-item">
+                        <div class="symbol">MSFT</div>
+                        <div class="price">$335.80</div>
+                        <div class="change positive">+0.85%</div>
+                    </div>
+                    <div class="watchlist-item">
+                        <div class="symbol">TSLA</div>
+                        <div class="price">$245.60</div>
+                        <div class="change positive">+3.20%</div>
+                    </div>
+                    <div class="watchlist-item">
+                        <div class="symbol">AMZN</div>
+                        <div class="price">$3,125.45</div>
+                        <div class="change negative">-0.65%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-section">
+                <h3>Market Overview</h3>
+                <div class="market-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">S&P 500</span>
+                        <span class="stat-value">4,235.89</span>
+                        <span class="stat-change positive">+0.45%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">NASDAQ</span>
+                        <span class="stat-value">13,456.78</span>
+                        <span class="stat-change negative">-0.23%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">DOW</span>
+                        <span class="stat-value">34,567.12</span>
+                        <span class="stat-change positive">+0.78%</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Chart Header -->
+            <div class="chart-header">
+                <div class="symbol-info">
+                    <h1 class="current-symbol">AAPL</h1>
+                    <div class="symbol-details">
+                        <span class="company-name">Apple Inc.</span>
+                        <span class="exchange">NASDAQ</span>
+                    </div>
+                </div>
+                <div class="price-info">
+                    <div class="current-price">$150.25</div>
+                    <div class="price-change positive">+$3.25 (+2.15%)</div>
+                </div>
+                <div class="chart-controls">
+                    <div class="timeframe-buttons">
+                        <button class="timeframe-btn">1D</button>
+                        <button class="timeframe-btn active">1W</button>
+                        <button class="timeframe-btn">1M</button>
+                        <button class="timeframe-btn">3M</button>
+                        <button class="timeframe-btn">1Y</button>
+                        <button class="timeframe-btn">5Y</button>
+                    </div>
+                    <div class="chart-type-buttons">
+                        <button class="chart-type-btn active" data-type="candlestick">
+                            <i class="fas fa-chart-bar"></i>
+                        </button>
+                        <button class="chart-type-btn" data-type="line">
+                            <i class="fas fa-chart-line"></i>
+                        </button>
+                        <button class="chart-type-btn" data-type="area">
+                            <i class="fas fa-chart-area"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="chart-container">
+                <canvas id="tradingChart"></canvas>
+                <div class="chart-overlay">
+                    <div class="crosshair" id="crosshair"></div>
+                    <div class="price-tooltip" id="priceTooltip"></div>
+                </div>
+            </div>
+
+            <!-- Technical Indicators -->
+            <div class="indicators-panel">
+                <div class="indicators-header">
+                    <h3>Technical Indicators</h3>
+                    <button class="add-indicator-btn">+ Add Indicator</button>
+                </div>
+                <div class="indicators-list">
+                    <div class="indicator-item">
+                        <span class="indicator-name">RSI (14)</span>
+                        <span class="indicator-value">65.23</span>
+                    </div>
+                    <div class="indicator-item">
+                        <span class="indicator-name">MACD</span>
+                        <span class="indicator-value">2.45</span>
+                    </div>
+                    <div class="indicator-item">
+                        <span class="indicator-name">SMA (20)</span>
+                        <span class="indicator-value">$148.90</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Trading Panel -->
+        <aside class="trading-panel">
+            <div class="trading-tabs">
+                <button class="tab-btn active" data-tab="buy">Buy</button>
+                <button class="tab-btn" data-tab="sell">Sell</button>
+            </div>
+            
+            <div class="trading-form" id="buyForm">
+                <div class="form-group">
+                    <label>Order Type</label>
+                    <select class="form-control" id="orderType">
+                        <option value="market">Market Order</option>
+                        <option value="limit">Limit Order</option>
+                        <option value="stop">Stop Order</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" class="form-control" placeholder="0" id="quantity">
+                </div>
+                
+                <div class="form-group limit-price" style="display: none;">
+                    <label>Limit Price</label>
+                    <input type="number" class="form-control" placeholder="$0.00" id="limitPrice" step="0.01">
+                </div>
+                
+                <div class="form-group">
+                    <label>Estimated Cost</label>
+                    <div class="estimated-cost">$0.00</div>
+                </div>
+                
+                <button class="btn-buy">Buy AAPL</button>
+            </div>
+            
+            <div class="trading-form" id="sellForm" style="display: none;">
+                <div class="form-group">
+                    <label>Order Type</label>
+                    <select class="form-control">
+                        <option value="market">Market Order</option>
+                        <option value="limit">Limit Order</option>
+                        <option value="stop">Stop Order</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" class="form-control" placeholder="0">
+                </div>
+                
+                <div class="form-group">
+                    <label>Estimated Value</label>
+                    <div class="estimated-cost">$0.00</div>
+                </div>
+                
+                <button class="btn-sell">Sell AAPL</button>
+            </div>
+            
+            <!-- Portfolio Summary -->
+            <div class="portfolio-summary">
+                <h3>Portfolio</h3>
+                <div class="portfolio-stats">
+                    <div class="portfolio-item">
+                        <span class="label">Total Value</span>
+                        <span class="value">$25,430.50</span>
+                    </div>
+                    <div class="portfolio-item">
+                        <span class="label">Day's Change</span>
+                        <span class="value positive">+$345.20 (+1.38%)</span>
+                    </div>
+                    <div class="portfolio-item">
+                        <span class="label">Buying Power</span>
+                        <span class="value">$5,230.80</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Orders -->
+            <div class="recent-orders">
+                <h3>Recent Orders</h3>
+                <div class="orders-list">
+                    <div class="order-item">
+                        <div class="order-symbol">AAPL</div>
+                        <div class="order-details">
+                            <div class="order-type">Buy 10 shares</div>
+                            <div class="order-status completed">Completed</div>
+                        </div>
+                        <div class="order-price">$1,502.50</div>
+                    </div>
+                    <div class="order-item">
+                        <div class="order-symbol">GOOGL</div>
+                        <div class="order-details">
+                            <div class="order-type">Sell 2 shares</div>
+                            <div class="order-status pending">Pending</div>
+                        </div>
+                        <div class="order-price">$5,690.60</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- News Feed Modal -->
+    <div class="modal" id="newsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Market News</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="news-item">
+                    <h3>Apple Reports Strong Q4 Earnings</h3>
+                    <p>Apple Inc. exceeded analyst expectations with strong iPhone sales...</p>
+                    <span class="news-time">2 hours ago</span>
+                </div>
+                <div class="news-item">
+                    <h3>Federal Reserve Hints at Rate Changes</h3>
+                    <p>The Federal Reserve indicated potential interest rate adjustments...</p>
+                    <span class="news-time">4 hours ago</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
