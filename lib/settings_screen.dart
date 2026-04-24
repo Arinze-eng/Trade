@@ -30,7 +30,7 @@ class _AppSettingsScreenState extends ConsumerState<AppSettingsScreen> {
         response = await FileSaver.instance.saveFile(
           name: "config_awl",
           bytes: exportedSettings,
-          
+          fileExtension: "json",
           mimeType: MimeType.json,
         );
       } else {
@@ -39,7 +39,7 @@ class _AppSettingsScreenState extends ConsumerState<AppSettingsScreen> {
         response = await FileSaver.instance.saveAs(
           name: "config_awl",
           bytes: exportedSettings,
-          
+          fileExtension: "json",
           mimeType: MimeType.json,
         );
       }
