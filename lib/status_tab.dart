@@ -32,7 +32,8 @@ class _StatusPageState extends ConsumerState<StatusPage> {
         ref.read(availableProxiesProvider.notifier).refresh(),
       ]);
     }
-
+    return response;
+  }
 
   Future<void> _onToggleOfferExitForAll(bool enabled) async {
     if (_offerAllBusy) return;
@@ -81,8 +82,6 @@ class _StatusPageState extends ConsumerState<StatusPage> {
     } finally {
       if (mounted) setState(() => _offerAllBusy = false);
     }
-  }
-    return response;
   }
 
   Future<void> _onShowQR(MyPeerInfo peerInfo) async {

@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 enum AppSection { overview, settings, blockedPeers, diagnostics }
 
-const _supportWhatsAppUrl = 'https://wa.me/9048554985';
+const _supportWhatsAppUrl = 'https://wa.me/2349048554985';
 
 class AppShell extends StatefulWidget {
   final AppSection? selected;
@@ -40,8 +40,8 @@ class _AppShellState extends State<AppShell> {
   }
 
   Offset _clampOffset(Offset raw, Size size) {
-    final maxX = (size.width - _fabSize - _fabMargin).clamp(0, double.infinity);
-    final maxY = (size.height - _fabSize - _fabMargin).clamp(0, double.infinity);
+    final maxX = (size.width - _fabSize - _fabMargin).clamp(0.0, double.infinity);
+    final maxY = (size.height - _fabSize - _fabMargin).clamp(0.0, double.infinity);
     return Offset(
       raw.dx.clamp(_fabMargin, maxX),
       raw.dy.clamp(_fabMargin, maxY),
