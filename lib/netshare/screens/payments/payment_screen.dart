@@ -191,7 +191,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
@@ -288,7 +288,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ],
                   gradient: [
                     Colors.white,
-                    Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -302,7 +302,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     'Monthly renewal',
                   ],
                   gradient: [
-                    Theme.of(context).colorScheme.tertiary.withOpacity(0.18),
+                    Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18),
                     Colors.white,
                   ],
                 ),

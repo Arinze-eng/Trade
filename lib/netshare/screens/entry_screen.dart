@@ -24,7 +24,7 @@ class EntryScreen extends StatelessWidget {
             end: Alignment.bottomCenter,
             colors: [
               theme.colorScheme.surface,
-              theme.colorScheme.surface.withOpacity(0.92),
+              theme.colorScheme.surface.withValues(alpha: 0.92),
               theme.colorScheme.surface,
             ],
           ),
@@ -56,10 +56,10 @@ class EntryScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurface.withOpacity(0.06),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
                   ),
                   child: Column(

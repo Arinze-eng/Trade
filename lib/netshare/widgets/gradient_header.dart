@@ -22,12 +22,12 @@ class GradientHeader extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            cs.primary.withOpacity(0.14),
-            cs.secondary.withOpacity(0.10),
-            cs.tertiary.withOpacity(0.08),
+            cs.primary.withValues(alpha: 0.14),
+            cs.secondary.withValues(alpha: 0.10),
+            cs.tertiary.withValues(alpha: 0.08),
           ],
         ),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.6)),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
       ),
       child: child,
     );

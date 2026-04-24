@@ -22,9 +22,9 @@ class InfoBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: cs.primaryContainer.withOpacity(0.55),
+        color: cs.primaryContainer.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: cs.primary.withOpacity(0.22)),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.22)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,7 +33,7 @@ class InfoBanner extends StatelessWidget {
             height: 36,
             width: 36,
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.14),
+              color: cs.primary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, color: cs.primary, size: 20),

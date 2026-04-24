@@ -22,9 +22,9 @@ class GlassCard extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: cs.surface.withOpacity(0.14),
+            color: cs.surface.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
           ),
           child: Padding(padding: padding, child: child),
         ),

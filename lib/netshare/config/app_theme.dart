@@ -25,14 +25,14 @@ abstract final class AppTheme {
       ),
       cardTheme: CardTheme(
         elevation: 0,
-        color: cs.surface.withOpacity(0.30),
+        color: cs.surface.withValues(alpha: 0.30),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       ),
-      dividerTheme: DividerThemeData(color: Colors.white.withOpacity(0.10)),
+      dividerTheme: DividerThemeData(color: Colors.white.withValues(alpha: 0.10)),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: cs.surface.withOpacity(0.35),
+        fillColor: cs.surface.withValues(alpha: 0.35),
         prefixIconColor: Colors.white70,
         labelStyle: const TextStyle(color: Colors.white70),
         hintStyle: const TextStyle(color: Colors.white54),
@@ -42,7 +42,7 @@ abstract final class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -74,7 +74,7 @@ abstract final class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(58),
-          side: BorderSide(color: Colors.white.withOpacity(0.16)),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
         ),
