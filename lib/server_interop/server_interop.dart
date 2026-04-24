@@ -23,16 +23,3 @@ bool isServerRunning() {
 Future<String> importConfig(String config) async {
   return importConfigImpl(config);
 }
-
-// ---- Full-tunnel VPN (Android only) ----
-Future<String> startVpn() async {
-  return startVpnImpl();
-}
-
-Future<void> stopVpn() async {
-  return stopVpnImpl();
-}
-
-Future<bool> isVpnRunning() async {
-  return isVpnRunningImpl();
-}

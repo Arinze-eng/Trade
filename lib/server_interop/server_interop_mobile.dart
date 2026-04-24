@@ -42,35 +42,6 @@ Future<void> stopServerImpl() async {
   serverRunning = false;
 }
 
-// ---- Full-tunnel VPN (Android) ----
-
-Future<String> startVpnImpl() async {
-  try {
-    await platform.invokeMethod('start_vpn');
-  } catch (e, s) {
-    developer.log('Failed to start VPN', error: e, stackTrace: s, name: 'server_interop');
-    return e.toString();
-  }
-  return "";
-}
-
-Future<void> stopVpnImpl() async {
-  try {
-    await platform.invokeMethod('stop_vpn');
-  } catch (e, s) {
-    developer.log('Failed to stop VPN', error: e, stackTrace: s, name: 'server_interop');
-  }
-}
-
-Future<bool> isVpnRunningImpl() async {
-  try {
-    final bool running = await platform.invokeMethod('is_vpn_running');
-    return running;
-  } catch (_) {
-    return false;
-  }
-}
-
 bool isServerRunningImpl() {
   return serverRunning;
 }

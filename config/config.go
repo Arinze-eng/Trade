@@ -29,8 +29,7 @@ const (
 	AdminHttpServerIP            = "127.0.0.66"
 	AdminHttpServerListenAddress = "127.0.0.66:80"
 
-	// On Android we run full-tunnel VPN via local SOCKS5, so prefer localhost.
-	defaultSOCKS5ListenAddress = "127.0.0.1:10808"
+	defaultSOCKS5ListenAddress = "127.0.0.66:8080"
 
 	DefaultPeerAlias = "peer"
 )

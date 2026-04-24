@@ -30,15 +30,3 @@ bool isServerRunningImpl() {
 Future<String> importConfigImpl(String config) async {
   throw UnsupportedError('Unsupported for web');
 }
-
-Future<String> startVpnImpl() async {
-  throw UnsupportedError('Unsupported for web');
-}
-
-Future<void> stopVpnImpl() async {
-  throw UnsupportedError('Unsupported for web');
-}
-
-Future<bool> isVpnRunningImpl() async {
-  throw UnsupportedError('Unsupported for web');
-}

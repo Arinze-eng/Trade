@@ -4,7 +4,6 @@ import 'package:anywherelan/common.dart';
 import 'package:anywherelan/connection_error.dart';
 import 'package:anywherelan/entities.dart';
 import 'package:anywherelan/providers.dart';
-import 'package:anywherelan/server_interop/server_interop.dart' as serverInterop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,10 +24,6 @@ class _StatusPageState extends ConsumerState<StatusPage> {
   bool _openedSetupDialog = false;
   bool _offerAllBusy = false;
 
-  bool _vpnChecked = false;
-  bool _vpnEnabled = false;
-  bool _vpnBusy = false;
-
   Future<String> _onUpdateProxy(String usingPeerID) async {
     final response = await ref.read(apiProvider).updateProxySettings(usingPeerID);
     if (response == "") {
@@ -37,8 +32,7 @@ class _StatusPageState extends ConsumerState<StatusPage> {
         ref.read(availableProxiesProvider.notifier).refresh(),
       ]);
     }
-    return response;
-  }
+
 
   Future<void> _onToggleOfferExitForAll(bool enabled) async {
     if (_offerAllBusy) return;
@@ -88,41 +82,7 @@ class _StatusPageState extends ConsumerState<StatusPage> {
       if (mounted) setState(() => _offerAllBusy = false);
     }
   }
-
-
-  Future<void> _onToggleVpn(bool enabled) async {
-    if (_vpnBusy) return;
-    setState(() {
-      _vpnBusy = true;
-    });
-
-    try {
-      if (enabled) {
-        final err = await serverInterop.startVpn();
-        if (err.isNotEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(backgroundColor: Theme.of(context).colorScheme.error, content: Text(err)),
-            );
-          }
-          return;
-        }
-      } else {
-        await serverInterop.stopVpn();
-      }
-
-      final running = await serverInterop.isVpnRunning();
-      if (!mounted) return;
-      setState(() {
-        _vpnEnabled = running;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _vpnBusy = false;
-        });
-      }
-    }
+    return response;
   }
 
   Future<void> _onShowQR(MyPeerInfo peerInfo) async {
@@ -138,18 +98,6 @@ class _StatusPageState extends ConsumerState<StatusPage> {
     final peerInfo = ref.watch(myPeerInfoProvider).valueOrNull;
     final proxiesData = ref.watch(availableProxiesProvider).valueOrNull;
     final knownPeers = ref.watch(knownPeersProvider).valueOrNull;
-
-    if (!_vpnChecked) {
-      _vpnChecked = true;
-      Future.microtask(() async {
-        final running = await serverInterop.isVpnRunning();
-        if (!mounted) return;
-        setState(() {
-          _vpnEnabled = running;
-        });
-      });
-    }
-
 
     return ValueListenableBuilder<bool>(
       valueListenable: isServerAvailable,
@@ -176,9 +124,6 @@ class _StatusPageState extends ConsumerState<StatusPage> {
           onUpdateProxy: _onUpdateProxy,
           onToggleOfferExitForAll: _onToggleOfferExitForAll,
           offerExitForAllBusy: _offerAllBusy,
-          vpnEnabled: _vpnEnabled,
-          vpnBusy: _vpnBusy,
-          onToggleVpn: _onToggleVpn,
           onShowQR: peerInfo != null ? () => _onShowQR(peerInfo) : null,
           onShowSettings: () => _onShowSettings(peerInfo),
         );
@@ -195,12 +140,7 @@ class StatusPageView extends StatefulWidget {
   final ListAvailableProxiesResponse? proxiesData;
   final List<KnownPeer>? knownPeers;
   final bool showDeviceHeader;
-  final bool vpnEnabled;
-  final bool vpnBusy;
-  final Future<void> Function(bool enabled)? onToggleVpn;
   final Future<String> Function(String usingPeerID)? onUpdateProxy;
-  final Future<void> Function(bool enabled)? onToggleOfferExitForAll;
-  final bool offerExitForAllBusy;
   final Future<void> Function()? onShowQR;
   final Future<void> Function()? onShowSettings;
 
@@ -210,9 +150,6 @@ class StatusPageView extends StatefulWidget {
     this.proxiesData,
     this.knownPeers,
     this.showDeviceHeader = true,
-    this.vpnEnabled = false,
-    this.vpnBusy = false,
-    this.onToggleVpn,
     this.onUpdateProxy,
     this.onToggleOfferExitForAll,
     this.offerExitForAllBusy = false,
@@ -254,9 +191,6 @@ class _StatusPageViewState extends State<StatusPageView> {
             peerInfo: _peerInfo,
             proxiesData: widget.proxiesData,
             knownPeers: widget.knownPeers,
-            vpnEnabled: widget.vpnEnabled,
-            vpnBusy: widget.vpnBusy,
-            onToggleVpn: widget.onToggleVpn,
             onUpdateProxy: widget.onUpdateProxy,
             onToggleOfferExitForAll: widget.onToggleOfferExitForAll,
             offerExitForAllBusy: widget.offerExitForAllBusy,
@@ -324,14 +258,11 @@ class _ProxyCard extends StatelessWidget {
   final MyPeerInfo peerInfo;
   final ListAvailableProxiesResponse? proxiesData;
   final List<KnownPeer>? knownPeers;
-  final bool vpnEnabled;
-  final bool vpnBusy;
-  final Future<void> Function(bool enabled)? onToggleVpn;
   final Future<String> Function(String usingPeerID)? onUpdateProxy;
   final Future<void> Function(bool enabled)? onToggleOfferExitForAll;
   final bool offerExitForAllBusy;
 
-  const _ProxyCard({required this.peerInfo, this.proxiesData, this.knownPeers, this.vpnEnabled = false, this.vpnBusy = false, this.onToggleVpn, this.onUpdateProxy, this.onToggleOfferExitForAll, this.offerExitForAllBusy = false});
+  const _ProxyCard({required this.peerInfo, this.proxiesData, this.knownPeers, this.onUpdateProxy, this.onToggleOfferExitForAll, this.offerExitForAllBusy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -357,14 +288,6 @@ class _ProxyCard extends StatelessWidget {
             knownPeers: knownPeers,
             busy: offerExitForAllBusy,
             onToggle: onToggleOfferExitForAll,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: _VpnToggleRow(
-            enabled: vpnEnabled,
-            busy: vpnBusy,
-            onToggle: onToggleVpn,
           ),
         ),
         Padding(
@@ -660,44 +583,6 @@ class _AddressField extends StatelessWidget {
           color: colorScheme.onSurface,
         ),
       ),
-    );
-  }
-}
-
-class _VpnToggleRow extends StatelessWidget {
-  final bool enabled;
-  final bool busy;
-  final Future<void> Function(bool enabled)? onToggle;
-
-  const _VpnToggleRow({required this.enabled, required this.busy, required this.onToggle});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Full-tunnel VPN', style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              Text(
-                'Routes ALL apps through the selected exit peer (kill-switch behavior).',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
-              ),
-            ],
-          ),
-        ),
-        if (busy) ...[
-          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 10),
-        ],
-        Switch(
-          value: enabled,
-          onChanged: (busy || onToggle == null) ? null : (val) => onToggle!(val),
-        ),
-      ],
     );
   }
 }
