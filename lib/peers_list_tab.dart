@@ -177,6 +177,7 @@ class _PeersListViewState extends State<PeersListView> {
 
   Widget _buildPeerCard(KnownPeer peer, bool isExpanded) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isWide = MediaQuery.of(context).size.width >= 600;
     var subtitle = peer.ipAddr;
     if (peer.domainName.isNotEmpty) {
       subtitle = "${peer.domainName}.awl";
