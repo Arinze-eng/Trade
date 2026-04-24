@@ -499,7 +499,7 @@ class _StatTile extends StatelessWidget {
       title: Text(label, style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
       subtitle: Text(
         '${byteCountIEC(totalBytes)} total',
-        style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.72)),
+        style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
       ),
       trailing: Text(
         '${byteCountIEC(rateBytesPerSec.round())}/s',
@@ -551,7 +551,7 @@ class _LabeledTile extends StatelessWidget {
       subtitle: subtitle != null
           ? Text(
               subtitle!,
-              style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.72)),
+              style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
             )
           : null,
       trailing: trailing,
@@ -684,7 +684,7 @@ class _VpnToggleRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 'Routes ALL apps through the selected exit peer (kill-switch behavior).',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.72)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
               ),
             ],
           ),
@@ -727,7 +727,7 @@ class _OfferExitForAllRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 'Allow all peers to route their internet through this device.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.72)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
               ),
             ],
           ),
@@ -776,7 +776,7 @@ class _ExitThroughRow extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           'Proxied traffic leaves the internet from this peer.',
-          style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.72)),
+          style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withOpacity(0.72)),
         ),
       ],
     );

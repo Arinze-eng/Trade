@@ -62,9 +62,9 @@ class _AnimatedHeroHeaderState extends State<AnimatedHeroHeader>
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.black.withValues(alpha: 0.12),
+                    Colors.black.withOpacity(0.12),
                     Colors.transparent,
-                    Colors.white.withValues(alpha: 0.10),
+                    Colors.white.withOpacity(0.10),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -84,9 +84,9 @@ class _AnimatedHeroHeaderState extends State<AnimatedHeroHeader>
                       height: 52,
                       width: 52,
                       decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.22),
+                        color: cs.primary.withOpacity(0.22),
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        border: Border.all(color: Colors.white.withOpacity(0.35)),
                       ),
                       child: Icon(widget.icon, color: Colors.white),
                     ),
@@ -106,7 +106,7 @@ class _AnimatedHeroHeaderState extends State<AnimatedHeroHeader>
                           Text(
                             widget.subtitle,
                             style: t.bodyMedium?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.92),
+                              color: Colors.white.withOpacity(0.92),
                             ),
                           ),
                         ],

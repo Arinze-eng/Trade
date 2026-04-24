@@ -127,7 +127,7 @@ class _PeersListViewState extends State<PeersListView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lan_outlined, size: 48, color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+            Icon(Icons.lan_outlined, size: 48, color: colorScheme.onSurfaceVariant.withOpacity(0.5)),
             SizedBox(height: 12),
             Text("No known peers", style: Theme.of(context).textTheme.titleMedium),
             SizedBox(height: 4),
@@ -238,7 +238,7 @@ class _PeersListViewState extends State<PeersListView> {
                               lastSeenText,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                                color: colorScheme.onSurfaceVariant.withOpacity(0.7),
                               ),
                             ),
                           ],
@@ -491,7 +491,7 @@ class _PeersListViewState extends State<PeersListView> {
     final icon = _detailIcons[label];
     final displayLabel = _detailLabels[label] ?? label;
     final labelStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
-      color: colorScheme.onSurface.withValues(alpha: 0.72),
+      color: colorScheme.onSurface.withOpacity(0.72),
       fontWeight: FontWeight.w500,
     );
     return Column(
@@ -531,7 +531,7 @@ class _PeersListViewState extends State<PeersListView> {
               ],
               Text(
                 displayLabel,
-                style: TextStyle(fontSize: 14, color: colorScheme.onSurface.withValues(alpha: 0.72)),
+                style: TextStyle(fontSize: 14, color: colorScheme.onSurface.withOpacity(0.72)),
               ),
             ],
           ),
@@ -572,7 +572,7 @@ class _PeersListViewState extends State<PeersListView> {
 Widget buildPeersOnlineIndicator(BuildContext context, int online, int total) {
   if (total == 0) return const SizedBox.shrink();
   final colorScheme = Theme.of(context).colorScheme;
-  final dotColor = online > 0 ? successColor : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
+  final dotColor = online > 0 ? successColor : colorScheme.onSurfaceVariant.withOpacity(0.5);
   return Row(
     mainAxisSize: MainAxisSize.min,
     children: [

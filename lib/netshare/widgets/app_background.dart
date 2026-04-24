@@ -23,8 +23,8 @@ class AppBackground extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Colors.black.withValues(alpha: 0.35),
-                  Colors.black.withValues(alpha: 0.55),
+                  Colors.black.withOpacity(0.35),
+                  Colors.black.withOpacity(0.55),
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,

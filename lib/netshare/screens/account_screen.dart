@@ -61,7 +61,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       height: 54,
                       width: 54,
                       decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.12),
+                        color: cs.primary.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: Icon(Icons.person_outline, color: cs.primary),
