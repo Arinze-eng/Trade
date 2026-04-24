@@ -141,6 +141,8 @@ class StatusPageView extends StatefulWidget {
   final List<KnownPeer>? knownPeers;
   final bool showDeviceHeader;
   final Future<String> Function(String usingPeerID)? onUpdateProxy;
+  final Future<void> Function(bool enabled)? onToggleOfferExitForAll;
+  final bool offerExitForAllBusy;
   final Future<void> Function()? onShowQR;
   final Future<void> Function()? onShowSettings;
 

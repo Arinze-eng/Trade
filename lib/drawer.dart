@@ -17,7 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 const _supportEmail = 'cdnnetshare123@gmail.com';
-const _supportWhatsAppUrl = 'https://wa.me/9048554985';
+const _supportWhatsAppUrl = 'https://wa.me/2349048554985';
 const _supportMailtoUrl = 'mailto:cdnnetshare123@gmail.com?subject=CDN%20NetShare%20Support';
 
 class MyDrawer extends ConsumerStatefulWidget {

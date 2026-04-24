@@ -463,7 +463,6 @@ class _PeersListViewState extends State<PeersListView> {
   }
 
   static const _detailIcons = <String, IconData>{
- = <String, IconData>{
     'LAST SEEN': Icons.schedule,
     'VPN ADDRESS': Icons.language,
     'CONNECTION': Icons.sync_alt,
