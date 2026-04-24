@@ -38,7 +38,7 @@ func StartVPN(tunFD int32, socks5ProxyAddr string, mtu int32) (err error) {
   }
 
   // Keep logs quiet by default; Android UI can surface errors.
-  tlog.SetLevel(tlog.Silent)
+  // tlog.SetLevel(tlog.Silent)
 
   key := &engine.Key{}
   key.Device = fmt.Sprintf("fd://%d", tunFD)
