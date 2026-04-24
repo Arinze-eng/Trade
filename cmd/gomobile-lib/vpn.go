@@ -8,7 +8,7 @@ import (
   "sync"
 
   "github.com/xjasonlyu/tun2socks/v2/engine"
-  tlog "github.com/xjasonlyu/tun2socks/v2/log"
+  // tlog "github.com/xjasonlyu/tun2socks/v2/log"
 )
 
 var (
