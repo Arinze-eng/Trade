@@ -1,0 +1,477 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/metrics"
+	"github.com/anywherelan/awl/protocol"
+	"github.com/anywherelan/awl/vpn"
+)
+
+const (
+	// approx 6.6 MiB
+	packetHandlersChanCap = 2000
+)
+
+type Tunnel struct {
+	p2p    P2p
+	conf   *config.Config
+	device *vpn.Device
+	logger *log.ZapEventLogger
+
+	isClosed         atomic.Bool
+	peersLock        sync.RWMutex
+	peerIDToPeer     map[peer.ID]*VpnPeer
+	netIPToPeer      map[string]*VpnPeer
+	udpBroadcastAddr net.IP
+}
+
+func NewTunnel(p2pService P2p, device *vpn.Device, conf *config.Config) *Tunnel {
+	localIP, netMask := conf.VPNLocalIPMask()
+	udpBroadcastAddr := vpn.GetIPv4BroadcastAddress(&net.IPNet{IP: localIP, Mask: netMask})
+
+	tunnel := &Tunnel{
+		p2p:              p2pService,
+		conf:             conf,
+		device:           device,
+		logger:           log.Logger("awl/service/tunnel"),
+		peerIDToPeer:     make(map[peer.ID]*VpnPeer),
+		netIPToPeer:      make(map[string]*VpnPeer),
+		udpBroadcastAddr: udpBroadcastAddr,
+	}
+	tunnel.RefreshPeersList()
+
+	return tunnel
+}
+
+func (t *Tunnel) StreamHandler(stream network.Stream) {
+	defer func() {
+		_ = stream.Close()
+	}()
+
+	peerID := stream.Conn().RemotePeer()
+	t.peersLock.RLock()
+	_, ok := t.peerIDToPeer[peerID]
+	t.peersLock.RUnlock()
+	if !ok {
+		t.logger.Infof("Unknown peer %s tried to tunnel packet", peerID)
+		return
+	}
+
+	wrappedStream := &io.LimitedReader{}
+	for {
+		packet := t.device.GetTempPacket()
+		packetSize, err := protocol.ReadUint64(stream)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				t.logger.Warnf("read packet size: %v", err)
+			}
+			t.device.PutTempPacket(packet)
+			return
+		}
+		wrappedStream.R = stream
+		wrappedStream.N = int64(packetSize)
+		_, err = packet.ReadFrom(wrappedStream)
+		if err != nil {
+			t.logger.Warnf("read to packet: %v", err)
+			t.device.PutTempPacket(packet)
+			return
+		}
+
+		t.peersLock.RLock()
+		vpnPeer, ok := t.peerIDToPeer[peerID]
+		if !ok {
+			t.device.PutTempPacket(packet)
+			t.peersLock.RUnlock()
+			return
+		}
+
+		select {
+		case vpnPeer.inboundCh <- packet:
+		default:
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("inbound_channel_full").Inc()
+			t.logger.Warnf("inbound reader dropped packet for peer %s", peerID)
+			t.device.PutTempPacket(packet)
+		}
+		t.peersLock.RUnlock()
+	}
+}
+
+func (t *Tunnel) RefreshPeersList() {
+	t.peersLock.Lock()
+	defer t.peersLock.Unlock()
+
+	t.conf.RLock()
+	defer t.conf.RUnlock()
+	for _, knownPeer := range t.conf.KnownPeers {
+		peerID := knownPeer.PeerId()
+		newLocalIP := net.ParseIP(knownPeer.IPAddr).To4()
+		if newLocalIP == nil {
+			t.logger.Errorf("Known peer %q has invalid IP %s in conf", knownPeer.DisplayName(), knownPeer.IPAddr)
+			continue
+		}
+
+		prevPeer, exists := t.peerIDToPeer[peerID]
+		if exists {
+			oldLocalIP := *prevPeer.localIP.Load()
+			if oldLocalIP.Equal(newLocalIP) {
+				// no changes
+				continue
+			}
+
+			if !oldLocalIP.Equal(newLocalIP) {
+				// changed IP
+				delete(t.netIPToPeer, string(oldLocalIP))
+				prevPeer.localIP.Store(&newLocalIP)
+				t.netIPToPeer[string(newLocalIP)] = prevPeer
+
+				continue
+			}
+
+			// impossible case
+			continue
+		}
+
+		// add new peer
+		vpnPeer := NewVpnPeer(peerID, newLocalIP)
+		t.peerIDToPeer[peerID] = vpnPeer
+		t.netIPToPeer[string(newLocalIP)] = vpnPeer
+		vpnPeer.Start(t)
+	}
+
+	// delete unknown peers
+	for _, vpnPeer := range t.peerIDToPeer {
+		_, exists := t.conf.KnownPeers[vpnPeer.peerID.String()]
+		if exists {
+			continue
+		}
+		localIP := *vpnPeer.localIP.Load()
+		vpnPeer.Close(t)
+		delete(t.peerIDToPeer, vpnPeer.peerID)
+		delete(t.netIPToPeer, string(localIP))
+	}
+}
+
+func (t *Tunnel) Close() {
+	t.peersLock.Lock()
+	defer t.peersLock.Unlock()
+
+	t.isClosed.Store(true)
+
+	for _, vpnPeer := range t.peerIDToPeer {
+		localIP := *vpnPeer.localIP.Load()
+		vpnPeer.Close(t)
+		delete(t.peerIDToPeer, vpnPeer.peerID)
+		delete(t.netIPToPeer, string(localIP))
+	}
+}
+
+// HandleReadPackets for successfully handled packets it sets packet in slice as nil
+func (t *Tunnel) HandleReadPackets(packets []*vpn.Packet) {
+	t.peersLock.RLock()
+	defer t.peersLock.RUnlock()
+
+	if t.isClosed.Load() {
+		return
+	}
+
+	for i, packet := range packets {
+		if packet == nil {
+			continue
+		}
+
+		// TODO: ipv6 support
+		if packet.Dst.Equal(t.udpBroadcastAddr) || packet.Dst.Equal(net.IPv4bcast) {
+			// udp broadcast
+
+			for _, vpnPeer := range t.netIPToPeer {
+				// TODO: replace with event-based check OnConnected/OnDisconnected to improve performance
+				if !t.p2p.IsConnected(vpnPeer.peerID) {
+					continue
+				}
+
+				copyPacket := t.device.GetTempPacket()
+				packet.CopyTo(copyPacket)
+
+				select {
+				case vpnPeer.outboundCh <- copyPacket:
+				default:
+					t.device.PutTempPacket(copyPacket)
+				}
+			}
+
+			continue
+		}
+
+		vpnPeer, ok := t.netIPToPeer[string(packet.Dst)]
+		if !ok {
+			continue
+		}
+
+		select {
+		case vpnPeer.outboundCh <- packet:
+			packets[i] = nil
+		default:
+			metrics.VPNPacketsDroppedTotal.WithLabelValues("outbound_channel_full").Inc()
+		}
+	}
+}
+
+func (t *Tunnel) makeTunnelStream(ctx context.Context, peerID peer.ID) (network.Stream, error) {
+	err := t.p2p.ConnectPeer(ctx, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	newStreamFunc := t.p2p.NewStream
+	if t.conf.P2pNode.UseDedicatedConnForEachStream {
+		newStreamFunc = t.p2p.NewStreamWithDedicatedConn
+	}
+
+	stream, err := newStreamFunc(ctx, peerID, protocol.TunnelPacketMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	return stream, nil
+}
+
+type VpnPeer struct {
+	peerID     peer.ID
+	localIP    atomic.Pointer[net.IP]
+	inboundCh  chan *vpn.Packet // from remote peer to us
+	outboundCh chan *vpn.Packet // from us to remote
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+}
+
+func NewVpnPeer(peerID peer.ID, localIP net.IP) *VpnPeer {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &VpnPeer{
+		peerID:     peerID,
+		inboundCh:  make(chan *vpn.Packet, packetHandlersChanCap),
+		outboundCh: make(chan *vpn.Packet, packetHandlersChanCap),
+		ctx:        ctx,
+		ctxCancel:  cancel,
+	}
+
+	p.localIP.Store(&localIP)
+
+	return p
+}
+
+// TODO: remove Tunnel from VpnPeer dependencies
+func (vp *VpnPeer) Start(t *Tunnel) {
+	go vp.backgroundInboundHandler(t)
+
+	for i := 0; i < t.conf.P2pNode.ParallelSendingStreamsCount; i++ {
+		go vp.backgroundOutboundHandler(t)
+	}
+}
+
+func (vp *VpnPeer) Close(t *Tunnel) {
+	vp.ctxCancel()
+	close(vp.inboundCh)
+	close(vp.outboundCh)
+	for packet := range vp.inboundCh {
+		t.device.PutTempPacket(packet)
+	}
+	for packet := range vp.outboundCh {
+		t.device.PutTempPacket(packet)
+	}
+}
+
+func (vp *VpnPeer) backgroundOutboundHandler(t *Tunnel) {
+	const (
+		// 5 GiB. Idk why, just in case
+		maxPacketsPerUnlimitedStream = 5 << 30 / vpn.InterfaceMTU
+		// 20 MiB. The same limit is set in awl-bootstrap-node
+		maxPacketsPerLimitedStream = 20 << 20 / vpn.InterfaceMTU
+		idleStreamTimeout          = 30 * time.Second
+		// approx 340 KiB
+		packetsBatchSize = 100
+	)
+	var (
+		stream                  network.Stream
+		maxPacketsPerStream     int
+		currentPacketsForStream int
+		bytesBuf                []byte
+		packetsBuf              = make([]*vpn.Packet, packetsBatchSize)
+	)
+
+	sendPacket := func(packets []*vpn.Packet) (err error) {
+		if stream == nil {
+			ctx, cancel := context.WithTimeout(vp.ctx, 2*time.Second)
+			stream, err = t.makeTunnelStream(ctx, vp.peerID)
+			cancel()
+			if err != nil {
+				metrics.VPNStreamOpenErrorsTotal.Inc()
+				return fmt.Errorf("make tunnel stream: %v", err)
+			}
+			if stream.Stat().Limited {
+				maxPacketsPerStream = maxPacketsPerLimitedStream
+			} else {
+				maxPacketsPerStream = maxPacketsPerUnlimitedStream
+			}
+
+			bytesBuf = make([]byte, 0, packetsBatchSize*(vpn.InterfaceMTU+8))
+		}
+
+		data := bytesBuf[:0]
+		for _, packet := range packets {
+			data = protocol.AppendPacketToBuf(data, packet.Packet)
+		}
+		_, err = stream.Write(data)
+		dataLen := len(data)
+		bytesBuf = data[:0]
+
+		if err == nil {
+			metrics.VPNPacketsSentTotal.Add(float64(len(packets)))
+			metrics.VPNBytesSentTotal.Add(float64(dataLen))
+		}
+
+		return err
+	}
+
+	closeStream := func() {
+		if stream != nil {
+			_ = stream.Close()
+			stream = nil
+		}
+		currentPacketsForStream = 0
+		// free buffer when idle
+		bytesBuf = nil
+	}
+
+	clearTempPackets := func(packets []*vpn.Packet) {
+		for i := 0; i < len(packets); i++ {
+			t.device.PutTempPacket(packets[i])
+			packets[i] = nil
+		}
+	}
+
+	defer closeStream()
+	idleTicker := time.NewTicker(idleStreamTimeout)
+	defer idleTicker.Stop()
+	for {
+		select {
+		case packet, open := <-vp.outboundCh:
+			if !open {
+				return
+			}
+
+			packetsBuf[0] = packet
+			packetsBatch := readBatchFromChan(vp.outboundCh, packetsBuf, 1)
+
+			if !t.p2p.IsConnected(vp.peerID) {
+				// we should be connected beforehand, e.g. in p2p.MaintainBackgroundConnections
+				clearTempPackets(packetsBatch)
+				continue
+			}
+
+			if currentPacketsForStream+len(packetsBatch) >= maxPacketsPerStream {
+				closeStream()
+			}
+
+			currentPacketsForStream += len(packetsBatch)
+			err := sendPacket(packetsBatch)
+			if err != nil {
+				localIP := *vp.localIP.Load()
+				t.logger.Warnf("failed to send %d packets to peerID (%s) local ip (%s): %v", len(packetsBatch), vp.peerID, localIP, err)
+				closeStream()
+			}
+
+			clearTempPackets(packetsBatch)
+		case <-idleTicker.C:
+			if len(vp.outboundCh) == 0 {
+				closeStream()
+			}
+		}
+	}
+}
+
+func (vp *VpnPeer) backgroundInboundHandler(t *Tunnel) {
+	batchSize := t.device.BatchSize()
+	bytesBufs := make([][]byte, 0, batchSize)
+	packetsBufs := make([]*vpn.Packet, batchSize)
+
+	for {
+		firstPacket, open := <-vp.inboundCh
+		if !open {
+			return
+		}
+		localIP := *vp.localIP.Load()
+
+		packetsBufs[0] = firstPacket
+		packetsBatch := readBatchFromChan(vp.inboundCh, packetsBufs, 1)
+
+		newLen := 0
+		for i, packet := range packetsBatch {
+			ok := packet.Parse()
+			if !ok {
+				metrics.VPNPacketsDroppedTotal.WithLabelValues("parse_error").Inc()
+				t.logger.Warnf("got invalid packet from peerID (%s) local ip (%s)", vp.peerID, localIP)
+				t.device.PutTempPacket(packet)
+				packetsBatch[i] = nil
+				continue
+			}
+			packetsBatch[newLen] = packet
+			newLen++
+		}
+		filteredPackets := packetsBatch[:newLen]
+
+		if len(filteredPackets) > 0 {
+			err := t.device.WritePacketsBatch(filteredPackets, bytesBufs, localIP)
+			if err != nil {
+				t.logger.Warnf("write packets batch to vpn for local ip %s: %v", localIP, err)
+			} else {
+				metrics.VPNPacketsReceivedTotal.Add(float64(len(filteredPackets)))
+				packetsLen := 0
+				for _, p := range filteredPackets {
+					packetsLen += len(p.Packet)
+				}
+				metrics.VPNBytesReceivedTotal.Add(float64(packetsLen))
+			}
+		}
+
+		for i, packet := range packetsBatch {
+			if packet == nil {
+				continue
+			}
+			t.device.PutTempPacket(packet)
+			packetsBatch[i] = nil
+		}
+	}
+}
+
+func readBatchFromChan(ch chan *vpn.Packet, buf []*vpn.Packet, offset int) []*vpn.Packet {
+	i := offset
+	for {
+		if i == len(buf) {
+			return buf[:i]
+		}
+		select {
+		case packet, ok := <-ch:
+			if !ok {
+				return buf[:i]
+			}
+			buf[i] = packet
+			i++
+		default:
+			return buf[:i]
+		}
+	}
+}

@@ -1,0 +1,62 @@
+name: anywherelan
+description: Securely connect your devices into a private network.
+
+homepage: "https://github.com/anywherelan/awl"
+repository: "https://github.com/anywherelan/awl-flutter"
+issue_tracker: "https://github.com/anywherelan/awl/issues"
+
+publish_to: 'none'
+
+version: 0.16.0+16000
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: any
+  json_annotation: any
+  permission_handler: any
+  qr_flutter: any
+  share_plus: any
+  path_provider: any
+  flutter_local_notifications: any
+  overlay_support: any
+  flutter_zxing: any
+  file_saver: any
+  file_picker: any
+  url_launcher: any
+  crypto: any
+  path: any
+  web: any
+  flutter_riverpod: any
+  supabase_flutter: any
+  flutter_secure_storage: any
+  shared_preferences: any
+  app_links: any
+  uuid: any
+  cupertino_icons: any
+
+dev_dependencies:
+  build_runner: any
+  json_serializable: any
+  flutter_test:
+    sdk: flutter
+  mocktail: any
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/awl.png
+    - assets/images/
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.woff2
+    - family: "Noto Sans SC 71"
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.woff2
+    - family: "Noto Color Emoji 2"
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji.woff2

@@ -1,0 +1,820 @@
+basePath: /api/v0/
+definitions:
+  api.Error:
+    properties:
+      error:
+        type: string
+      message:
+        description: AuthMessage is an error from Echo framework, particularly from
+          Basic Auth middleware
+        type: string
+    type: object
+  config.BlockedPeer:
+    properties:
+      createdAt:
+        description: Time of adding to config (decline invitation/remove from KnownPeers)
+        type: string
+      displayName:
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID
+        type: string
+    type: object
+  config.DNSConfig:
+    properties:
+      disableDNS:
+        type: boolean
+      listenAddress:
+        type: string
+    type: object
+  config.HttpBasicAuthConfig:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  config.KnownPeer:
+    properties:
+      alias:
+        description: User provided name
+        type: string
+      allowedUsingAsExitNode:
+        type: boolean
+      confirmed:
+        description: Has remote peer confirmed our invitation
+        type: boolean
+      createdAt:
+        description: Time of adding to config (accept/invite)
+        type: string
+      declined:
+        description: Has remote peer declined our invitation
+        type: boolean
+      domainName:
+        description: DomainName without zone suffix (.awl)
+        type: string
+      ipAddr:
+        description: IPAddr used for forwarding
+        type: string
+      lastSeen:
+        description: Time of last connection
+        type: string
+      name:
+        description: Peer provided name
+        type: string
+      peerId:
+        description: Hex-encoded multihash representing a peer ID
+        type: string
+      weAllowUsingAsExitNode:
+        type: boolean
+    type: object
+  config.P2pNodeConfig:
+    properties:
+      autoAcceptAuthRequests:
+        type: boolean
+      bootstrapPeers:
+        items:
+          type: string
+        type: array
+      identity:
+        type: string
+      ignoreDefaultBootstrapPeers:
+        description: With this option only BootstrapPeers from config will be used
+        type: boolean
+      listenAddresses:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      parallelSendingStreamsCount:
+        type: integer
+      peerId:
+        description: Hex-encoded multihash representing a peer ID, calculated from
+          Identity
+        type: string
+      reconnectionIntervalSec:
+        type: integer
+      useDedicatedConnForEachStream:
+        type: boolean
+    type: object
+  config.SOCKS5Config:
+    properties:
+      listenAddress:
+        type: string
+      listenerEnabled:
+        type: boolean
+      proxyingEnabled:
+        description: allow using my host as proxy
+        type: boolean
+      usingPeerID:
+        description: peer that is set as proxy
+        type: string
+    type: object
+  config.UpdateConfig:
+    properties:
+      lowestPriorityChan:
+        type: string
+      trayAutoCheckEnabled:
+        type: boolean
+      trayAutoCheckInterval:
+        type: string
+      updateServerURL:
+        type: string
+    type: object
+  config.VPNConfig:
+    properties:
+      disableVPNInterface:
+        type: boolean
+      interfaceName:
+        type: string
+      ipNet:
+        type: string
+    type: object
+  entity.AuthRequest:
+    properties:
+      name:
+        type: string
+      peerID:
+        type: string
+      suggestedIP:
+        description: SuggestedIP is a free IP address generated for this peer
+        type: string
+    type: object
+  entity.AvailableProxy:
+    properties:
+      peerID:
+        type: string
+      peerName:
+        type: string
+    type: object
+  entity.BandwidthDebugInfo:
+    properties:
+      byProtocol:
+        additionalProperties:
+          $ref: '#/definitions/entity.BandwidthInfo'
+        type: object
+      total:
+        $ref: '#/definitions/entity.BandwidthInfo'
+    type: object
+  entity.BandwidthInfo:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
+    type: object
+  entity.ConnectionsDebugInfo:
+    properties:
+      connectedPeersCount:
+        type: integer
+      lastTrimAgo:
+        type: string
+      openConnectionsCount:
+        type: integer
+      openStreamsCount:
+        format: int64
+        type: integer
+    type: object
+  entity.DhtDebugInfo:
+    properties:
+      bootstrapPeers:
+        additionalProperties:
+          $ref: '#/definitions/p2p.BootstrapPeerDebugInfo'
+        type: object
+      listenAddress:
+        items:
+          type: string
+        type: array
+      peersWithAddrsCount:
+        type: integer
+      reachability:
+        enum:
+        - Unknown
+        - Public
+        - Private
+        type: string
+      reachableAddrs:
+        items:
+          type: string
+        type: array
+      routingTable:
+        items:
+          $ref: '#/definitions/kbucket.PeerInfo'
+        type: array
+      routingTableSize:
+        type: integer
+      unknownAddrs:
+        items:
+          type: string
+        type: array
+      unreachableAddrs:
+        items:
+          type: string
+        type: array
+    type: object
+  entity.FriendRequest:
+    properties:
+      alias:
+        type: string
+      ipaddr:
+        description: 'optional: specific IP address for the peer'
+        type: string
+      peerID:
+        type: string
+    required:
+    - alias
+    - peerID
+    type: object
+  entity.FriendRequestReply:
+    properties:
+      alias:
+        type: string
+      decline:
+        type: boolean
+      ipaddr:
+        description: 'optional: specific IP address for the peer'
+        type: string
+      peerID:
+        type: string
+    required:
+    - alias
+    - peerID
+    type: object
+  entity.GeneralDebugInfo:
+    properties:
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+  entity.KnownPeersResponse:
+    properties:
+      alias:
+        type: string
+      allowedUsingAsExitNode:
+        type: boolean
+      confirmed:
+        type: boolean
+      connected:
+        type: boolean
+      connections:
+        items:
+          $ref: '#/definitions/p2p.ConnectionInfo'
+        type: array
+      declined:
+        type: boolean
+      displayName:
+        description: 'Deprecated: useless, equal to Alias all the time'
+        type: string
+      domainName:
+        type: string
+      ipAddr:
+        type: string
+      lastSeen:
+        type: string
+      name:
+        description: 'Deprecated: use DisplayName instead'
+        type: string
+      networkStats:
+        $ref: '#/definitions/metrics.Stats'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
+      peerID:
+        type: string
+      ping:
+        type: integer
+      version:
+        type: string
+      weAllowUsingAsExitNode:
+        type: boolean
+    type: object
+  entity.ListAvailableProxiesResponse:
+    properties:
+      proxies:
+        items:
+          $ref: '#/definitions/entity.AvailableProxy'
+        type: array
+    type: object
+  entity.P2pDebugInfo:
+    properties:
+      bandwidth:
+        $ref: '#/definitions/entity.BandwidthDebugInfo'
+      connections:
+        $ref: '#/definitions/entity.ConnectionsDebugInfo'
+      dht:
+        $ref: '#/definitions/entity.DhtDebugInfo'
+      general:
+        $ref: '#/definitions/entity.GeneralDebugInfo'
+      knownPeers:
+        items:
+          $ref: '#/definitions/entity.KnownPeersResponse'
+        type: array
+    type: object
+  entity.PeerIDRequest:
+    properties:
+      peerID:
+        type: string
+    required:
+    - peerID
+    type: object
+  entity.PeerInfo:
+    properties:
+      awlDNSAddress:
+        type: string
+      connectedBootstrapPeers:
+        type: integer
+      isAwlDNSSetAsSystem:
+        type: boolean
+      name:
+        type: string
+      networkStats:
+        $ref: '#/definitions/metrics.Stats'
+      networkStatsInIECUnits:
+        $ref: '#/definitions/entity.StatsInUnits'
+      peerID:
+        type: string
+      reachability:
+        enum:
+        - Unknown
+        - Public
+        - Private
+        type: string
+      serverVersion:
+        type: string
+      socks5:
+        $ref: '#/definitions/entity.SOCKS5Info'
+      totalBootstrapPeers:
+        type: integer
+      uptime:
+        type: integer
+      vpn:
+        $ref: '#/definitions/entity.VPNInfo'
+    type: object
+  entity.SOCKS5Info:
+    properties:
+      listenAddress:
+        type: string
+      listenerEnabled:
+        type: boolean
+      proxyingEnabled:
+        type: boolean
+      usingPeerID:
+        type: string
+      usingPeerName:
+        type: string
+    type: object
+  entity.StatsInUnits:
+    properties:
+      rateIn:
+        type: string
+      rateOut:
+        type: string
+      totalIn:
+        type: string
+      totalOut:
+        type: string
+    type: object
+  entity.UpdateMySettingsRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  entity.UpdatePeerSettingsRequest:
+    properties:
+      alias:
+        type: string
+      allowUsingAsExitNode:
+        type: boolean
+      domainName:
+        type: string
+      ipaddr:
+        description: 'TODO: support ipv6'
+        type: string
+      peerID:
+        type: string
+    required:
+    - alias
+    - domainName
+    - ipaddr
+    - peerID
+    type: object
+  entity.UpdateProxySettingsRequest:
+    properties:
+      usingPeerID:
+        type: string
+    type: object
+  entity.VPNInfo:
+    properties:
+      interfaceName:
+        type: string
+      ipnet:
+        type: string
+      vpninterfaceEnabled:
+        type: boolean
+    type: object
+  github_com_anywherelan_awl_config.Config:
+    properties:
+      blockedPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.BlockedPeer'
+        type: object
+      dns:
+        $ref: '#/definitions/config.DNSConfig'
+      httpBasicAuth:
+        $ref: '#/definitions/config.HttpBasicAuthConfig'
+      httpListenAddress:
+        type: string
+      httpListenOnAdminHost:
+        type: boolean
+      knownPeers:
+        additionalProperties:
+          $ref: '#/definitions/config.KnownPeer'
+        type: object
+      loggerLevel:
+        type: string
+      p2pNode:
+        $ref: '#/definitions/config.P2pNodeConfig'
+      socks5:
+        $ref: '#/definitions/config.SOCKS5Config'
+      update:
+        $ref: '#/definitions/config.UpdateConfig'
+      version:
+        type: string
+      vpn:
+        $ref: '#/definitions/config.VPNConfig'
+    type: object
+  kbucket.PeerInfo:
+    properties:
+      addedAt:
+        description: AddedAt is the time this peer was added to the routing table.
+        type: string
+      id:
+        type: string
+      lastSuccessfulOutboundQueryAt:
+        description: |-
+          LastSuccessfulOutboundQueryAt is the time instant at which we last got a
+          successful query response from the peer.
+        type: string
+      lastUsefulAt:
+        description: |-
+          LastUsefulAt is the time instant at which the peer was last "useful" to us.
+          Please see the DHT docs for the definition of usefulness.
+        type: string
+    type: object
+  metrics.Stats:
+    properties:
+      rateIn:
+        format: float64
+        type: number
+      rateOut:
+        format: float64
+        type: number
+      totalIn:
+        format: int64
+        type: integer
+      totalOut:
+        format: int64
+        type: integer
+    type: object
+  p2p.BootstrapPeerDebugInfo:
+    properties:
+      connections:
+        items:
+          type: string
+        type: array
+      error:
+        type: string
+      ping:
+        type: string
+    type: object
+  p2p.ConnectionInfo:
+    properties:
+      address:
+        type: string
+      direction:
+        type: string
+      multiaddr:
+        type: string
+      opened:
+        type: string
+      protocol:
+        type: string
+      relayPeerID:
+        type: string
+      throughRelay:
+        type: boolean
+      transient:
+        type: boolean
+    type: object
+host: localhost:8639
+info:
+  contact: {}
+  description: Anywherelan API
+  title: Anywherelan API
+  version: "0.1"
+paths:
+  /debug/log:
+    get:
+      parameters:
+      - description: Define number of rows of logs to output. On default and 0 prints
+          all.
+        in: query
+        name: logs
+        type: integer
+      - description: Print logs from the beginning of logs
+        in: query
+        name: from_head
+        type: boolean
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: log text
+          schema:
+            type: string
+      summary: Get logs
+      tags:
+      - Debug
+  /debug/p2p_info:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.P2pDebugInfo'
+      summary: Get p2p debug info
+      tags:
+      - Debug
+  /peers/accept_peer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.FriendRequestReply'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Accept new peer's invitation
+      tags:
+      - Peers
+  /peers/auth_requests:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.AuthRequest'
+            type: array
+      summary: Get ingoing auth requests
+      tags:
+      - Peers
+  /peers/get_blocked:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/config.BlockedPeer'
+            type: array
+      summary: Get blocked peers info
+      tags:
+      - Peers
+  /peers/get_known:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/entity.KnownPeersResponse'
+            type: array
+      summary: Get known peers info
+      tags:
+      - Peers
+  /peers/get_known_peer_settings:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PeerIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/config.KnownPeer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get known peer settings
+      tags:
+      - Peers
+  /peers/invite_peer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.FriendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Invite new peer
+      tags:
+      - Peers
+  /peers/remove:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PeerIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Remove known peer
+      tags:
+      - Peers
+  /peers/update_settings:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.UpdatePeerSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update peer settings
+      tags:
+      - Peers
+  /settings/export_server_config:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_anywherelan_awl_config.Config'
+      summary: Export server configuration
+      tags:
+        - Settings
+  /settings/list_proxies:
+    get:
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.ListAvailableProxiesResponse'
+      summary: List available socks5 proxies
+      tags:
+      - Settings
+  /settings/peer_info:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.PeerInfo'
+      summary: Get my peer info
+      tags:
+        - Settings
+  /settings/set_proxy:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: Params
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/entity.UpdateProxySettingsRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update current proxy settings
+      tags:
+      - Settings
+  /settings/update:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.UpdateMySettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update my peer info
+      tags:
+      - Settings
+swagger: "2.0"

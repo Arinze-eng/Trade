@@ -1,0 +1,581 @@
+package cli
+
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path"
+	"runtime"
+	"strconv"
+	"strings"
+
+	"github.com/GrigoryKrasnochub/updaterini"
+	"github.com/ipfs/go-log/v2"
+	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
+	"github.com/urfave/cli/v2"
+
+	"github.com/anywherelan/awl/api/apiclient"
+	"github.com/anywherelan/awl/config"
+	"github.com/anywherelan/awl/update"
+)
+
+const (
+	WithEnvCommandName = "with-env"
+	CliCommandName     = "cli"
+)
+
+var defaultApiAddr = "127.0.0.1:" + strconv.Itoa(config.DefaultHTTPPort)
+
+var binaryName = path.Base(os.Args[0])
+
+type Application struct {
+	logger     *log.ZapEventLogger
+	api        *apiclient.Client
+	cliapp     *cli.App
+	updateType update.ApplicationType
+}
+
+func New(updateType update.ApplicationType) *Application {
+	app := new(Application)
+	app.logger = log.Logger("awl/cli")
+	app.updateType = updateType
+	app.init()
+
+	return app
+}
+
+// RunWithWriter runs CLI commands with the given args, writing output to w.
+// Suitable for use in tests. Unlike Run(), it does not read os.Args or call os.Exit.
+func (a *Application) RunWithWriter(args []string, w io.Writer) error {
+	a.cliapp.Writer = w
+	return a.cliapp.Run(args)
+}
+
+func (a *Application) Run() {
+	if len(os.Args) == 1 {
+		return
+	}
+
+	switch arg := os.Args[1]; arg {
+	case WithEnvCommandName:
+		// is handled in linux_root_hacks.go
+		return
+	case CliCommandName:
+		err := a.cliapp.Run(os.Args[1:])
+		if err != nil {
+			a.logger.Fatalf("Error occurred: %v", err)
+		}
+		os.Exit(0)
+	case "-h", "--help":
+		a.printGlobalHelp()
+		os.Exit(0)
+	case "-v", "--version":
+		a.printVersion()
+		os.Exit(0)
+	default:
+		fmt.Printf("Unknown command '%s'. Use '%s -h' for help, or run '%s' to start the server\n", arg, binaryName, binaryName)
+		os.Exit(-1)
+	}
+}
+
+func (a *Application) printGlobalHelp() {
+	fmt.Printf(`Usage: %s <command>
+
+Run without a command to start the server.
+
+Flags:
+  -h, --help     Show context-sensitive help.
+  -v, --version  Show version.
+
+Commands:
+  cli    Command line interface for Anywherelan
+
+Run "%s <command> --help" for more information on a command.
+`, binaryName, binaryName)
+}
+
+func (a *Application) printVersion() {
+	fmt.Printf("Anywherelan version %s (%s %s-%s)\n", config.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+func (a *Application) init() {
+	a.cliapp = &cli.App{
+		Name:     "awl",
+		HelpName: binaryName + " " + CliCommandName,
+		Description: "Anywherelan (awl for brevity) is a mesh VPN project, similar to tinc, direct wireguard or tailscale. " +
+			"Awl makes it easy to connect to any of your devices (at the IP protocol level) wherever they are." +
+			"\nSee more at the project page https://github.com/anywherelan/awl",
+		Version: config.Version,
+		Usage:   "p2p mesh vpn",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:     "api_addr",
+				Usage:    fmt.Sprintf("awl api address, example: %s", defaultApiAddr),
+				Required: false,
+			},
+			&cli.StringFlag{
+				Name:     "api_user",
+				Usage:    "username for api basic auth",
+				Required: false,
+			},
+			&cli.StringFlag{
+				Name:     "api_password",
+				Usage:    "password for api basic auth",
+				Required: false,
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:  "me",
+				Usage: "Group of commands to work with your status and settings",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "status",
+						Usage:  "Print your server status, network stats",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printStatus(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:   "id",
+						Usage:  "Print your peer id",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeerId(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:  "rename",
+						Usage: "Rename your peer",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: true,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return renameMe(a.api, c.String("name"), c.App.Writer)
+						},
+					},
+					{
+						Name:   "list_proxies",
+						Usage:  "Prints list of available SOCKS5 proxies",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return listProxies(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:  "set_proxy",
+						Usage: "Sets SOCKS5 proxy for your peer, empty pid/name means disable proxy",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+						},
+						Before: func(c *cli.Context) error {
+							return a.initApiAndPeerId(c, false)
+						},
+						Action: func(c *cli.Context) error {
+							return setProxy(a.api, c.String("pid"), c.App.Writer)
+						},
+					},
+				},
+			},
+			{
+				Name:  "peers",
+				Usage: "Group of commands to work with peers. Use to check friend requests and work with known peers",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "status",
+						Usage: "Print peers status",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "format",
+								Aliases:  []string{"f"},
+								Required: false,
+								Value:    "npslucev",
+								Usage: "control table columns list and order.Each char add column, write column chars together without gap. Use these chars to add specific columns:\n   " +
+									"n - peers number\n   p - peers name, domain and ip address\n   i - peers id\n   s - peers status\n   l - peers last seen datetime\n   v - peers awl version" +
+									"\n   u - network usage by peer (in/out)\n   c - list of peers connections (IP address + protocol)\n   e - exit node status\n  ",
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printPeersStatus(a.api, c.String("format"), c.App.Writer)
+						},
+					},
+					{
+						Name:   "requests",
+						Usage:  "Print all incoming friend requests",
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return printFriendRequests(a.api, c.App.Writer)
+						},
+					},
+					{
+						Name:  "add",
+						Usage: "Invite peer or accept existing invitation from this peer",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: true,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: true,
+							},
+							&cli.StringFlag{
+								Name:     "ip",
+								Usage:    "override peer IP address",
+								Required: false,
+							},
+						},
+						Before: a.initApiConnection,
+						Action: func(c *cli.Context) error {
+							return addPeer(a.api, c.String("pid"), c.String("name"), c.String("ip"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "Remove peer from the friends list",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return removePeer(a.api, c.String("pid"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "rename",
+						Usage: "Change known peer name",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "new_name",
+								Usage:    "peer new name",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return changePeerAlias(a.api, c.String("pid"), c.String("new_name"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "update_domain",
+						Usage: "Change known peer domain name",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "domain",
+								Usage:    "peer domain name",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return changePeerDomain(a.api, c.String("pid"), c.String("domain"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "update_ip",
+						Usage: "Change known peer IP address",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "ip",
+								Usage:    "peer IP address",
+								Required: true,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return changePeerIP(a.api, c.String("pid"), c.String("ip"), c.App.Writer)
+						},
+					},
+					{
+						Name:  "allow_exit_node",
+						Usage: "Allow known peer to use this device as exit node (as socks5 proxy)",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "pid",
+								Usage:    "peer id",
+								Required: false,
+							},
+							&cli.StringFlag{
+								Name:     "name",
+								Usage:    "peer name",
+								Required: false,
+							},
+							&cli.BoolFlag{
+								Name:     "allow",
+								Usage:    "allow",
+								Required: false,
+							},
+						},
+						Before: a.initApiAndPeerIdRequired,
+						Action: func(c *cli.Context) error {
+							return setAllowUsingAsExitNode(a.api, c.String("pid"), c.Bool("allow"), c.App.Writer)
+						},
+					},
+				},
+			},
+			{
+				Name:    "logs",
+				Aliases: []string{"log"},
+				Usage:   "Prints application logs (default print 10 logs from the end of logs)",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:     "head",
+						Usage:    "print logs from the beginning of logs",
+						Required: false,
+					},
+					&cli.IntFlag{
+						Name:     "n",
+						Usage:    "define number of rows of logs to output. Use 0 to print all",
+						Required: false,
+						Value:    10,
+					},
+				},
+				Before: a.initApiConnection,
+				Action: func(c *cli.Context) error {
+					logs, err := a.api.ApplicationLog(c.Int("n"), c.Bool("head"))
+					if err != nil {
+						return err
+					}
+					fmt.Fprintln(c.App.Writer, logs)
+
+					return nil
+				},
+			},
+			{
+				Name:   "p2p_info",
+				Usage:  "Prints p2p debug info",
+				Before: a.initApiConnection,
+				Action: func(c *cli.Context) error {
+					debugInfo, err := a.api.P2pDebugInfo()
+					if err != nil {
+						return err
+					}
+
+					bytes, err := json.MarshalIndent(debugInfo, "", "  ")
+					if err != nil {
+						return err
+					}
+					fmt.Fprintln(c.App.Writer, string(bytes))
+
+					return nil
+				},
+			},
+			{
+				Name:  "update",
+				Usage: "Updates awl to the latest version",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:     "quiet",
+						Aliases:  []string{"q"},
+						Usage:    "update without confirmation message",
+						Required: false,
+					},
+					&cli.BoolFlag{
+						Name:     "run",
+						Aliases:  []string{"r"},
+						Usage:    "run after a successful update",
+						Required: false,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					_, _ = fmt.Fprintf(a.cliapp.Writer, "current version: %s\n", config.Version)
+
+					conf, err := config.LoadConfig(eventbus.NewBus())
+					if err != nil {
+						return fmt.Errorf("update: read config: %v", err)
+					}
+
+					updService, err := update.NewUpdateService(conf, a.logger, a.updateType)
+					if err != nil {
+						return fmt.Errorf("update: create update service: %v", err)
+					}
+					status, err := updService.CheckForUpdates()
+					if err != nil {
+						return fmt.Errorf("update: check for updates: %v", err)
+					}
+
+					if !status {
+						a.logger.Infof("app is already up-to-date")
+						return nil
+					}
+					if !c.Bool("quiet") {
+						status, err = a.yesNoPrompt(fmt.Sprintf("update to version %s: %s, %s", updService.NewVersion.VersionTag(),
+							updService.NewVersion.VersionName(), updService.NewVersion.VersionDescription()), true)
+						if !status || err != nil {
+							a.logger.Info("update stopped")
+							return err
+						}
+					}
+					a.logger.Infof("trying to update to version %s: %s", updService.NewVersion.VersionTag(),
+						updService.NewVersion.VersionName())
+					updResult, err := updService.DoUpdate()
+					if err != nil {
+						return fmt.Errorf("update: updating process: %v", err)
+					}
+					a.logger.Infof("updated successfully %s -> %s", conf.Version, updService.NewVersion.VersionTag())
+					if c.Bool("run") {
+						return updResult.DeletePreviousVersionFiles(updaterini.DeleteModRerunExec)
+					}
+					return updResult.DeletePreviousVersionFiles(updaterini.DeleteModKillProcess)
+				},
+			},
+		},
+	}
+}
+
+func (a *Application) initApiConnection(c *cli.Context) error {
+	username := c.String("api_user")
+	password := c.String("api_password")
+
+	apiAddr := c.String("api_addr")
+	if apiAddr != "" {
+		return a.initApiFromAddr(apiAddr, username, password)
+	}
+
+	conf, errConfig := config.LoadConfig(eventbus.NewBus())
+	if errConfig == nil {
+		if username == "" && password == "" {
+			username = conf.HttpBasicAuth.Username
+			password = conf.HttpBasicAuth.Password
+		}
+		return a.initApiFromAddr(conf.HttpListenAddress, username, password)
+	}
+
+	errDefault := a.initApiFromAddr(defaultApiAddr, username, password)
+	if errDefault == nil {
+		return nil
+	}
+
+	a.logger.Errorf("could not load config file, error: %v", errConfig)
+	a.logger.Errorf("could not connect to default api_addr (%s), error: %v", defaultApiAddr, errDefault)
+
+	return errors.New("no connection to api server")
+}
+
+func (a *Application) initApiFromAddr(addr, username, password string) error {
+	api := apiclient.NewWithAuth(addr, username, password)
+	_, err := api.PeerInfo()
+	if err != nil {
+		return fmt.Errorf("could not access api on address %s: %v", addr, err)
+	}
+
+	a.api = api
+	return nil
+}
+
+func (a *Application) initApiAndPeerIdRequired(c *cli.Context) error {
+	return a.initApiAndPeerId(c, true)
+}
+
+func (a *Application) initApiAndPeerId(c *cli.Context, isRequired bool) error {
+	err := a.initApiConnection(c)
+	if err != nil {
+		return err
+	}
+
+	pid := c.String("pid")
+	if pid != "" {
+		return nil
+	}
+	alias := c.String("name")
+	if alias == "" && isRequired {
+		return fmt.Errorf("peerID or name should be defined")
+	} else if alias == "" && !isRequired {
+		return nil
+	}
+
+	pid, err = getPeerIdByAlias(a.api, alias)
+	if err != nil {
+		return err
+	}
+	return c.Set("pid", pid)
+}
+
+func (a *Application) yesNoPrompt(message string, def bool) (bool, error) {
+	choices := "Yes/no, default yes"
+	if !def {
+		choices = "yes/No, default no"
+	}
+
+	r := bufio.NewReader(a.cliapp.Reader)
+	var s string
+
+	for {
+		_, err := fmt.Fprintf(a.cliapp.Writer, "%s (%s) ", message, choices)
+		if err != nil {
+			return false, err
+		}
+		s, _ = r.ReadString('\n')
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return def, nil
+		}
+		s = strings.ToLower(s)
+		if s == "y" || s == "yes" {
+			return true, nil
+		}
+		if s == "n" || s == "no" {
+			return false, nil
+		}
+	}
+}
