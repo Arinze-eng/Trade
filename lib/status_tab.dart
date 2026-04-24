@@ -37,7 +37,8 @@ class _StatusPageState extends ConsumerState<StatusPage> {
         ref.read(availableProxiesProvider.notifier).refresh(),
       ]);
     }
-
+    return response;
+  }
 
   Future<void> _onToggleOfferExitForAll(bool enabled) async {
     if (_offerAllBusy) return;
@@ -123,8 +124,6 @@ class _StatusPageState extends ConsumerState<StatusPage> {
       }
     }
   }
-    return response;
-  }
 
   Future<void> _onShowQR(MyPeerInfo peerInfo) async {
     await showQRDialog(context, peerInfo.peerID, peerInfo.name);
@@ -200,6 +199,8 @@ class StatusPageView extends StatefulWidget {
   final bool vpnBusy;
   final Future<void> Function(bool enabled)? onToggleVpn;
   final Future<String> Function(String usingPeerID)? onUpdateProxy;
+  final Future<void> Function(bool enabled)? onToggleOfferExitForAll;
+  final bool offerExitForAllBusy;
   final Future<void> Function()? onShowQR;
   final Future<void> Function()? onShowSettings;
 
