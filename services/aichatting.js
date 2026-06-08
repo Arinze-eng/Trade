@@ -1,62 +1,101 @@
 // WormGPT powered by aichatting.net free API
-// No API key needed — uses the free tier
-const fetch = require('node-fetch');
+// Uses native https module to avoid node-fetch compatibility issues
+
 const https = require('https');
 
-const AICHATTING_API = 'https://aga-api.aichatting.net';
-const CHAT_ENDPOINT = `${AICHATTING_API}/aigc/chat`;
+const AICHATTING_API_HOST = 'aga-api.aichatting.net';
+const CHAT_PATH = '/aigc/chat';
+const FREE_COUNT_PATH = '/aigc/chat/user/free-count';
+
+function httpsPost(hostname, path, data, timeout = 60000) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(data);
+    const options = {
+      hostname,
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      },
+      timeout
+    };
+
+    const req = https.request(options, (res) => {
+      let responseData = '';
+      res.on('data', chunk => responseData += chunk);
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, data: JSON.parse(responseData) });
+        } catch (e) {
+          reject(new Error(`Parse error: ${e.message} - body: ${responseData}`));
+        }
+      });
+    });
+
+    req.on('error', (e) => reject(new Error(`Request error: ${e.message}`)));
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+function httpsGet(hostname, path, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const options = { hostname, path, method: 'GET', timeout };
+    const req = https.request(options, (res) => {
+      let responseData = '';
+      res.on('data', chunk => responseData += chunk);
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, data: JSON.parse(responseData) });
+        } catch (e) {
+          reject(new Error(`Parse error: ${e.message}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    req.end();
+  });
+}
 
 async function chatWormGPT(message, history = []) {
-  const payload = { content: message };
-  
-  try {
-    // Use AbortController for timeout (Node 18+)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-    
-    const resp = await fetch(CHAT_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-      agent: new https.Agent({ rejectUnauthorized: false })
-    });
-    
-    clearTimeout(timeoutId);
+  const attempts = [
+    message,
+    `Answer this: ${message}`,
+    `Respond to: ${message}`
+  ];
 
-    const data = await resp.json();
-    
-    if (data.code !== 0 || data.message !== 'success') {
-      throw new Error(`Aichatting API error: ${JSON.stringify(data)}`);
+  for (const attempt of attempts) {
+    try {
+      const result = await trySend(attempt);
+      if (result) return result;
+    } catch (e) {
+      // silent retry
     }
-
-    return {
-      reply: data.data.replyContent,
-      sessionId: data.data.sessionId
-    };
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out after 60s');
-    }
-    console.error('WormGPT chat error:', err.message);
-    throw err;
   }
+  throw new Error('Aichatting API unavailable - free credits may be exhausted');
+}
+
+async function trySend(message) {
+  const resp = await httpsPost(AICHATTING_API_HOST, CHAT_PATH, { content: message }, 60000);
+  
+  if (resp.status !== 200) return null;
+  if (resp.data.code !== 0 || resp.data.message !== 'success') return null;
+
+  return {
+    reply: resp.data.data.replyContent,
+    sessionId: resp.data.data.sessionId
+  };
 }
 
 async function checkFreeCredits() {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
-    const resp = await fetch(`${AICHATTING_API}/aigc/chat/user/free-count`, {
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    
-    const data = await resp.json();
-    return data.data || 0;
+    const resp = await httpsGet(AICHATTING_API_HOST, FREE_COUNT_PATH, 10000);
+    return resp.data.data || 0;
   } catch (err) {
-    console.error('Check credits error:', err.message);
     return 0;
   }
 }
