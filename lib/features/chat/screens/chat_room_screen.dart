@@ -1927,17 +1927,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
       bottomLeft: isMe ? const Radius.circular(22) : const Radius.circular(6),
     );
 
+    final replyBg = isMe
+        ? Colors.white.withOpacity(0.10)
+        : (lightMode ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.10));
+final replyTextColor = isMe
+        ? Colors.white54
+        : (lightMode ? Colors.grey.shade600 : Colors.white54);
+
     Widget bubbleContent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Reply reference
-        final replyBg = isMe
-            ? Colors.white.withOpacity(0.10)
-            : (lightMode ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.10));
-        final replyTextColor = isMe
-            ? Colors.white54
-            : (lightMode ? Colors.grey.shade600 : Colors.white54);
-
         if (replyToMsg != null) ...[
           Container(
             padding: const EdgeInsets.all(8),
