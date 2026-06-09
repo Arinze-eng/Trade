@@ -26,6 +26,11 @@ jobs:
           channel: 'stable'
           cache: true
       
+      - name: Setup Android SDK & NDK
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" --sdk_root=$ANDROID_HOME 2>&1 || true
+          echo "NDK_DIR=$ANDROID_HOME/ndk/27.0.12077973"
+          ls $ANDROID_HOME/ndk/ 2>/dev/null || echo "NDK not found"
       - name: Install dependencies
         run: flutter pub get
       
