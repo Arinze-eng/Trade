@@ -1,0 +1,61 @@
+name: Build arm64-v8a APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: 'stable'
+          cache: true
+      
+      - name: Install dependencies
+        run: flutter pub get
+      
+      - name: Extract third-party packages
+        run: |
+          if [ -f third_party/device_apps-2.2.0.tar.gz ]; then
+            cd third_party && tar xzf device_apps-2.2.0.tar.gz && cd ..
+          fi
+      
+      - name: Build APK (release, split-per-abi, tree-shake-icons)
+        run: flutter build apk --release --split-per-abi --tree-shake-icons
+      
+      - name: Find arm64-v8a APK
+        id: find_apk
+        run: |
+          echo "All APK files:"
+          find build/app/outputs/flutter-apk/ -name "*.apk" -type f -exec ls -lh {} \;
+          
+          ARM64_APK=$(find build/app/outputs/flutter-apk/ -name "*arm64-v8a*.apk" -type f | head -1)
+          if [ -z "$ARM64_APK" ]; then
+            echo "::error::No arm64-v8a APK found!"
+            exit 1
+          fi
+          echo "arm64_apk=$ARM64_APK" >> $GITHUB_OUTPUT
+          size_mb=$(( $(stat -c%s "$ARM64_APK") / 1024 / 1024 ))
+          echo "arm64-v8a APK size: ${size_mb} MB"
+      
+      - name: Upload arm64-v8a APK
+        uses: actions/upload-artifact@v4
+        if: steps.find_apk.outputs.arm64_apk != ''
+        with:
+          name: cdn-netchat-apk-arm64
+          path: ${{ steps.find_apk.outputs.arm64_apk }}

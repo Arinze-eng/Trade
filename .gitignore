@@ -1,0 +1,23 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# Android
+android/local.properties
+android/app/src/main/java/io/flutter/plugins/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Temp files
+tmp_*.json
+tmp_*.sql
+build_output/
+
+# Firebase — do NOT push Firebase config to GitHub
+# Rules files (firestore.rules, storage.rules) are kept for reference
+# but actual deployment should be done via Firebase CLI locally

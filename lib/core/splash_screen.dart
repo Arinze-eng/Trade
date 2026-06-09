@@ -1,0 +1,144 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'auth_wrapper.dart';
+import '../services/supabase_service.dart';
+
+/// Splash screen that shows the app logo.
+/// VPN has already been initialized in VpnSplashScreen before this screen.
+/// This screen shows branding briefly and then proceeds to auth.
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animController;
+  bool _navigated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _navigateAfterSplash();
+  }
+
+  Future<void> _navigateAfterSplash() async {
+    // Brief splash visibility for branding (VPN already connected in VpnSplashScreen)
+    // ── FASTER LOADING: Reduced from 1500ms to 800ms ──
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    if (!mounted) return;
+    _navigateToApp();
+  }
+
+  void _navigateToApp() {
+    if (_navigated) return;
+    _navigated = true;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const AuthWrapper(),
+        transitionDuration: const Duration(milliseconds: 500),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F2027),
+              Color(0xFF203A43),
+              Color(0xFF2C5364),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Spacer(flex: 3),
+                // App Logo / Icon
+                Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: const Color(0xFF6366F1).withOpacity(0.4),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.chat_bubble_rounded,
+                    color: Color(0xFF6366F1),
+                    size: 60,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // App Name
+                Text(
+                  'CDN-NETCHAT',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Secure Chat • VPN Protected',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white60,
+                    fontSize: 14,
+                  ),
+                ),
+                const Spacer(flex: 2),
+                // Loading indicator
+                FadeTransition(
+                  opacity: _animController,
+                  child: const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF6366F1),
+                    ),
+                  ),
+                ),
+                const Spacer(flex: 1),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
