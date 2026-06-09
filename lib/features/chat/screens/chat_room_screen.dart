@@ -1933,6 +1933,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
 final replyTextColor = isMe
         ? Colors.white54
         : (lightMode ? Colors.grey.shade600 : Colors.white54);
+final tsColor = isMe
+        ? Colors.white60
+        : (lightMode ? Colors.grey.shade500 : Colors.white54);
+final editedColor = isMe
+        ? Colors.white38
+        : (lightMode ? Colors.grey.shade400 : Colors.white24);
 
     Widget bubbleContent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2024,13 +2030,6 @@ final replyTextColor = isMe
             (message['content'] ?? '').toString(),
             style: const TextStyle(color: Colors.white, fontSize: 15),
           ),
-
-        final tsColor = isMe
-            ? Colors.white60
-            : (lightMode ? Colors.grey.shade500 : Colors.white54);
-        final editedColor = isMe
-            ? Colors.white38
-            : (lightMode ? Colors.grey.shade400 : Colors.white24);
 
         if (!isDeleted && !isEmojiOnly) ...[
           const SizedBox(height: 6),
@@ -2586,6 +2585,7 @@ final replyTextColor = isMe
     final inputBorder = isDark
         ? Colors.white.withOpacity(0.05)
         : Colors.grey.shade200;
+    final iconColorLocal = isDark ? Colors.white70 : Colors.grey.shade600;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -2607,16 +2607,15 @@ final replyTextColor = isMe
               ),
             Row(
               children: [
-                final iconColor = isDark ? Colors.white70 : Colors.grey.shade600;
 
                 // Attach file button
                 IconButton(
-                  icon: Icon(Icons.attach_file_rounded, color: iconColor),
+                  icon: Icon(Icons.attach_file_rounded, color: iconColorLocal),
                   onPressed: _pickAndSendFile,
                 ),
                 // Image button
                 PopupMenuButton<String>(
-                  icon: Icon(Icons.image_rounded, color: iconColor),
+                  icon: Icon(Icons.image_rounded, color: iconColorLocal),
                   color: const Color(0xFF203A43),
                   onSelected: (val) {
                     if (val == 'image') _pickAndSendImage();
@@ -2634,7 +2633,7 @@ final replyTextColor = isMe
                 // Voice record button
                 IconButton(
                   icon: Icon(_isRecording ? Icons.stop_circle_rounded : Icons.mic_rounded,
-                      color: _isRecording ? Colors.redAccent : iconColor),
+                      color: _isRecording ? Colors.redAccent : iconColorLocal),
                   onPressed: _toggleRecording,
                 ),
                 Expanded(
