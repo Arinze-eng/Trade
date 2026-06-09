@@ -3077,6 +3077,9 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (archived) return const SizedBox.shrink();
 
     final effectiveUnread = (unread > 0) || markedUnread;
+    final subtitleColor = isDark
+        ? (effectiveUnread ? Colors.white : Colors.white60)
+        : (effectiveUnread ? Colors.black87 : Colors.grey.shade500);
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -3111,9 +3114,6 @@ class _ChatListScreenState extends State<ChatListScreen>
           ],
         ],
       ),
-      final subtitleColor = isDark
-            ? (effectiveUnread ? Colors.white : Colors.white60)
-            : (effectiveUnread ? Colors.black87 : Colors.grey.shade500);
         subtitle: Text(
         lastMessage,
         maxLines: 1,

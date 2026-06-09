@@ -1,4 +1,5 @@
-import 'dart:async' show Timer, VoidCallback;
+import 'dart:async' show Timer;
+import 'package:flutter/foundation.dart' show VoidCallback;
 import 'dart:collection';
 
 /// [UPDATE 2026-06-08-LAGFIX] Debounce & throttle utilities
