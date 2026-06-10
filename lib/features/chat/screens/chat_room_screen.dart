@@ -1518,10 +1518,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    // [UPDATE 2026-06-08-P2] Use theme-aware background color
+    // [UPDATE 2026-06-10-P5] Use theme-aware background color
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lightMode = !isDark;
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
-    final textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -1673,13 +1674,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             Positioned.fill(
               child: Image.file(File(_wallpaperPath!), fit: BoxFit.cover),
             ),
-          Positioned.fill(
-            child: Container(
-              color: lightMode
-                  ? Colors.white.withOpacity(0.85)
-                  : Colors.black.withOpacity(0.25),
-            ),
-          ),
+          Positioned.fill(child: Container(color: lightMode ? Colors.white.withOpacity(0.85) : Colors.black.withOpacity(0.25))),
           Column(
             children: [
           Expanded(
@@ -1969,24 +1964,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             ],
           );
 
-    final incomingBubbleColor = lightMode ? Colors.white : const Color(0xFF1F2C33);
-
     final bubbleRadius = BorderRadius.circular(22).copyWith(
       bottomRight: isMe ? const Radius.circular(6) : const Radius.circular(22),
       bottomLeft: isMe ? const Radius.circular(22) : const Radius.circular(6),
     );
 
     final replyBg = isMe
-        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.08) : Colors.white.withOpacity(0.10))
-        : (lightMode ? Colors.black.withOpacity(0.04) : Colors.white.withOpacity(0.10));
+        ? Colors.white.withOpacity(0.10)
+        : (lightMode ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.10));
 final replyTextColor = isMe
-        ? (lightMode ? const Color(0xFF054D44) : Colors.white54)
+        ? Colors.white54
         : (lightMode ? Colors.grey.shade600 : Colors.white54);
 final tsColor = isMe
-        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.6) : Colors.white60)
+        ? Colors.white60
         : (lightMode ? Colors.grey.shade500 : Colors.white54);
 final editedColor = isMe
-        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.4) : Colors.white38)
+        ? Colors.white38
         : (lightMode ? Colors.grey.shade400 : Colors.white24);
 
     Widget bubbleContent = Column(
@@ -2026,17 +2019,24 @@ final editedColor = isMe
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.visibility_rounded, color: Colors.white38.withOpacity(0.7), size: 12),
+                Icon(Icons.visibility_rounded,
+                  color: isMe ? Colors.white38.withOpacity(0.7) : (lightMode ? Colors.grey.shade400 : Colors.white38.withOpacity(0.7)),
+                  size: 12),
                 const SizedBox(width: 4),
-                Text('View once', style: GoogleFonts.poppins(color: Colors.white38, fontSize: 10)),
+                Text('View once',
+                  style: GoogleFonts.poppins(
+                    color: isMe ? Colors.white38 : (lightMode ? Colors.grey.shade500 : Colors.white38),
+                    fontSize: 10,
+                  ),
+                ),
               ],
             ),
           ),
 
         if (isDeleted)
-          const Text(
+          Text(
             'This message was deleted',
-            style: TextStyle(color: Colors.white38, fontSize: 14, fontStyle: FontStyle.italic),
+            style: TextStyle(color: isMe ? Colors.white38 : (lightMode ? Colors.grey.shade400 : Colors.white38), fontSize: 14, fontStyle: FontStyle.italic),
           )
         else if (isEmojiOnly)
           Text(
@@ -2077,7 +2077,7 @@ final editedColor = isMe
         else
           Text(
             (message['content'] ?? '').toString(),
-            style: const TextStyle(color: Colors.white, fontSize: 15),
+            style: TextStyle(color: isMe ? Colors.white : (lightMode ? Colors.black87 : Colors.white), fontSize: 15),
           ),
 
         if (!isDeleted && !isEmojiOnly) ...[
@@ -2100,7 +2100,7 @@ final editedColor = isMe
                   onTap: () => _supabaseService.toggleLike(message['id'], !(message['is_liked'] ?? false)),
                   child: Icon(
                     message['is_liked'] == true ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                    color: message['is_liked'] == true ? Colors.redAccent : Colors.white38,
+                    color: message['is_liked'] == true ? Colors.redAccent : (lightMode ? Colors.grey.shade400 : Colors.white38),
                     size: 18,
                   ),
                 ),
@@ -2207,9 +2207,16 @@ final editedColor = isMe
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.shortcut_rounded, color: Colors.white38.withOpacity(0.6), size: 12),
+                        Icon(Icons.shortcut_rounded,
+                          color: isMe ? Colors.white38.withOpacity(0.6) : (lightMode ? Colors.grey.shade400 : Colors.white38.withOpacity(0.6)),
+                          size: 12),
                         const SizedBox(width: 4),
-                        Text('Forwarded', style: GoogleFonts.poppins(color: Colors.white38, fontSize: 10, fontStyle: FontStyle.italic)),
+                        Text('Forwarded',
+                          style: GoogleFonts.poppins(
+                            color: isMe ? Colors.white38 : (lightMode ? Colors.grey.shade500 : Colors.white38),
+                            fontSize: 10, fontStyle: FontStyle.italic
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2702,7 +2709,7 @@ final editedColor = isMe
                     constraints: const BoxConstraints(maxHeight: 100),
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF0F2F5),
+                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: TextField(
