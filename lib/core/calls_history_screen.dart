@@ -110,20 +110,26 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF0F2027) : const Color(0xFFF1F5F9);
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final dividerColor = isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade200;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F2027),
+      backgroundColor: bgColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text('Calls',
-            style: GoogleFonts.sora(fontWeight: FontWeight.w800)),
+            style: GoogleFonts.sora(fontWeight: FontWeight.w800, color: textColor)),
         flexibleSpace: Container(
           decoration: const BoxDecoration(gradient: AppColors.accentGradient),
           child: Container(color: Colors.black.withOpacity(0.55)),
         ),
+        iconTheme: IconThemeData(color: textColor),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded),
+            icon: Icon(Icons.refresh_rounded, color: textColor),
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -137,37 +143,45 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView.separated(
+                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                        cacheExtent: 500,
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         itemCount: _calls.length,
                         separatorBuilder: (_, __) =>
-                            Divider(color: Colors.white.withOpacity(0.06), height: 1),
-                        itemBuilder: (context, i) => _row(_calls[i]),
+                            Divider(color: dividerColor, height: 1),
+                        itemBuilder: (context, i) => RepaintBoundary(child: _row(_calls[i])),
                       ),
                     ),
     );
   }
 
   Widget _buildEmpty() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final iconColor = isDark ? Colors.white24 : Colors.grey.shade300;
+    final titleColor = isDark ? Colors.white70 : Colors.grey.shade600;
+    final subColor = isDark ? Colors.white38 : Colors.grey.shade500;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.call_rounded, color: Colors.white24, size: 56),
+          Icon(Icons.call_rounded, color: iconColor, size: 56),
           const SizedBox(height: 14),
           Text('No calls yet',
               style: GoogleFonts.poppins(
-                  color: Colors.white70,
+                  color: titleColor,
                   fontWeight: FontWeight.w600,
                   fontSize: 16)),
           const SizedBox(height: 6),
           Text('Voice and video calls will appear here',
-              style: GoogleFonts.poppins(color: Colors.white38, fontSize: 12)),
+              style: GoogleFonts.poppins(color: subColor, fontSize: 12)),
         ],
       ),
     );
   }
 
   Widget _buildError() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white70 : Colors.grey.shade600;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -179,7 +193,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
             const SizedBox(height: 12),
             Text(_error ?? 'Unknown error',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(color: Colors.white70)),
+                style: GoogleFonts.poppins(color: textColor)),
             const SizedBox(height: 14),
             ElevatedButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -189,6 +203,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
   }
 
   Widget _row(Map<String, dynamic> c) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final peer = (c['_peer'] as Map<String, dynamic>?) ?? const {};
     final outgoing = c['_outgoing'] == true;
     final status = (c['status'] ?? '').toString();
@@ -199,6 +214,9 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
         ? peer['display_name'].toString()
         : (peer['username'] ?? 'Unknown').toString();
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+    final titleColor = missed ? Colors.redAccent : (isDark ? Colors.white : Colors.black87);
+    final subtitleColor = isDark ? Colors.white60 : Colors.grey.shade600;
 
     final iconArrow = outgoing
         ? Icons.call_made_rounded
@@ -216,7 +234,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
       ),
       title: Text(name,
           style: GoogleFonts.poppins(
-              color: missed ? Colors.redAccent : Colors.white,
+              color: titleColor,
               fontWeight: FontWeight.w600)),
       subtitle: Row(
         children: [
@@ -225,7 +243,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
           Text(
             '${outgoing ? 'Outgoing' : (missed ? 'Missed' : 'Incoming')} '
             '· ${_relTime(c['started_at']?.toString())}',
-            style: GoogleFonts.poppins(color: Colors.white60, fontSize: 12),
+            style: GoogleFonts.poppins(color: subtitleColor, fontSize: 12),
           ),
         ],
       ),

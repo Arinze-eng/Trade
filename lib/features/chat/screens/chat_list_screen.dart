@@ -1875,6 +1875,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _supabaseService.streamCallHistory(_profile!['id']),
       builder: (context, snapshot) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -1902,12 +1903,15 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
         }
 
+        final dividerColor = isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200;
         return ListView.separated(
           controller: scrollController,
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          cacheExtent: 500,
           padding: const EdgeInsets.all(0),
           itemCount: calls.length,
           separatorBuilder:
-              (_, __) => Divider(color: Colors.white.withOpacity(0.08)),
+              (_, __) => Divider(color: dividerColor),
           itemBuilder: (context, index) {
             final call = calls[index];
             final isMe = call['caller_id'] == _profile!['id'];
@@ -2730,6 +2734,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       },
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+        cacheExtent: 500,
         itemCount: headerItemCount + _groups.length + threads.length,
         itemBuilder: (context, index) {
           // Header items
