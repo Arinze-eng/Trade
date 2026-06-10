@@ -2482,16 +2482,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       }).toList();
     }
 
-    // [UPDATE 2026-06-08-LAGFIX] UUID input & search now scroll WITH content
-    // instead of being static. Profile header stays sticky at top.
-    return Column(
-      children: [
-        _buildProfileHeader(),
-        Expanded(
-          child: _buildChatHistory(filteredThreads: filteredThreads),
-        ),
-      ],
-    );
+    // [UPDATE 2026-06-10] Profile header, UUID input, search bar ALL scroll with content
+    return _buildChatHistory(filteredThreads: filteredThreads);
   }
 
   Widget _buildThreadSearchBar() {
@@ -2696,8 +2688,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       return _buildEmptyState();
     }
 
-    // [UPDATE 2026-06-08-LAGFIX] UUID input, search bar & offline badge scroll WITH content
-    // as header items in the ListView instead of being static at the top
+    // [UPDATE 2026-06-10] Profile header, UUID input, search bar & offline badge ALL scroll
+    // with content — moved profile header inside the ListView
+    Widget profileHeader = _buildProfileHeader();
     Widget uuidInput = _buildUuidInput();
     Widget searchBar = _buildThreadSearchBar();
     Widget offlineBanner = _isOnline
@@ -2724,7 +2717,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
           );
 
-    const int headerItemCount = 3; // uuidInput + searchBar + archivedEntry
+    const int headerItemCount = 4; // profileHeader + uuidInput + searchBar + archivedEntry
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -2738,10 +2731,11 @@ class _ChatListScreenState extends State<ChatListScreen>
         cacheExtent: 500,
         itemCount: headerItemCount + _groups.length + threads.length,
         itemBuilder: (context, index) {
-          // Header items
-          if (index == 0) return RepaintBoundary(child: uuidInput);
-          if (index == 1) return RepaintBoundary(child: searchBar);
-          if (index == 2) {
+          // Header items — all scroll with content now
+          if (index == 0) return RepaintBoundary(child: profileHeader);
+          if (index == 1) return RepaintBoundary(child: uuidInput);
+          if (index == 2) return RepaintBoundary(child: searchBar);
+          if (index == 3) {
             return Column(
               children: [
                 if (!_isOnline) offlineBanner,

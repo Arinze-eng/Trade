@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [UPDATE 2026-06-10-P3] Scroll Fix — Profile Header Now Scrolls With Content
+
+### Scroll Behavior Fix
+- Moved profile header (`_buildProfileHeader`) inside the scrollable ListView so it scrolls up with the content instead of staying sticky
+- UUID input, search bar, and archived entry all scroll together (chat_list_screen.dart:2691-2745)
+
 ## [UPDATE 2026-06-10-P2] Notification Finalization & Drawer Rename
 
 ### Notifications — Final Setup
