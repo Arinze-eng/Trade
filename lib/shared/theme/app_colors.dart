@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
 /// Centralized brand colors for both dark and light themes.
-/// [UPDATE 2026-06-10-P4] WhatsApp-like colors for both modes
+/// [UPDATE 2026-06-10-P5] WhatsApp-exact light mode colors
 class AppColors {
   // Dark mode — WhatsApp dark
   static const bgDark = Color(0xFF0B141A);
   static const surfaceDark = Color(0xFF111B21);
   static const appBarDark = Color(0xFF1F2C33);
 
-  // Light mode — WhatsApp light
-  static const bgLight = Color(0xFFF0FAFA);
+  // Light mode — WhatsApp light (as of 2025/2026)
+  static const bgLight = Color(0xFFFFFFFF);
   static const surfaceLight = Color(0xFFFFFFFF);
-  static const appBarLight = Color(0xFF075E54);
+  static const appBarLight = Color(0xFFFFFFFF); // White app bar like current WhatsApp
 
   // Accents (shared)
   static const whatsappGreen = Color(0xFF25D366);
@@ -32,6 +32,20 @@ class AppColors {
   static const textDark = Color(0xFFE9EDEF);
   static const textMutedDark = Color(0xFF8696A0);
   static const textMutedLight = Color(0xFF667781);
+
+  // Light mode UI colors (WhatsApp current)
+  static const lightScaffoldBg = Color(0xFFEFEFEF); // Chat list bg
+  static const lightSurface = Color(0xFFFFFFFF);     // Cards, drawers
+  static const lightAppBarTitle = Color(0xFF00A884);  // WhatsApp green title
+  static const lightSearchBg = Color(0xFFF0F2F5);     // Search field bg
+  static const lightDivider = Color(0xFFE9EDEF);
+  static const lightTabSelected = Color(0xFF00A884);  // WhatsApp green selected
+  static const lightTabNormal = Color(0xFF667781);
+
+  // Dark mode UI colors
+  static const darkScaffoldBg = Color(0xFF0B141A);
+  static const darkSurface = Color(0xFF111B21);
+  static const darkAppBar = Color(0xFF1F2C33);
 
   /// Get background color based on brightness
   static Color bgFor(Brightness b) => b == Brightness.dark ? bgDark : bgLight;

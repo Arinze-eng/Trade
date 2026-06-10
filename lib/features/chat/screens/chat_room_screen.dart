@@ -1673,7 +1673,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             Positioned.fill(
               child: Image.file(File(_wallpaperPath!), fit: BoxFit.cover),
             ),
-          Positioned.fill(child: Container(color: Colors.black.withOpacity(0.25))),
+          Positioned.fill(
+            child: Container(
+              color: lightMode
+                  ? Colors.white.withOpacity(0.85)
+                  : Colors.black.withOpacity(0.25),
+            ),
+          ),
           Column(
             children: [
           Expanded(
@@ -1963,22 +1969,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             ],
           );
 
+    final incomingBubbleColor = lightMode ? Colors.white : const Color(0xFF1F2C33);
+
     final bubbleRadius = BorderRadius.circular(22).copyWith(
       bottomRight: isMe ? const Radius.circular(6) : const Radius.circular(22),
       bottomLeft: isMe ? const Radius.circular(22) : const Radius.circular(6),
     );
 
     final replyBg = isMe
-        ? Colors.white.withOpacity(0.10)
-        : (lightMode ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.10));
+        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.08) : Colors.white.withOpacity(0.10))
+        : (lightMode ? Colors.black.withOpacity(0.04) : Colors.white.withOpacity(0.10));
 final replyTextColor = isMe
-        ? Colors.white54
+        ? (lightMode ? const Color(0xFF054D44) : Colors.white54)
         : (lightMode ? Colors.grey.shade600 : Colors.white54);
 final tsColor = isMe
-        ? Colors.white60
+        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.6) : Colors.white60)
         : (lightMode ? Colors.grey.shade500 : Colors.white54);
 final editedColor = isMe
-        ? Colors.white38
+        ? (lightMode ? const Color(0xFF054D44).withOpacity(0.4) : Colors.white38)
         : (lightMode ? Colors.grey.shade400 : Colors.white24);
 
     Widget bubbleContent = Column(
@@ -2134,15 +2142,27 @@ final editedColor = isMe
                 ),
                 child: bubbleContent,
               )
-            : GlassContainer(
+            : Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                borderRadius: 22,
-                blur: 18,
-                opacity: 0.08,
-                gradientColors: [
-                  Colors.white.withOpacity(0.14),
-                  Colors.white.withOpacity(0.04),
-                ],
+                decoration: BoxDecoration(
+                  color: lightMode ? Colors.white : const Color(0xFF1F2C33),
+                  borderRadius: bubbleRadius,
+                  boxShadow: lightMode
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : [
+                          BoxShadow(
+                            color: const Color(0xFF2AABEE).withOpacity(0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                ),
                 child: bubbleContent,
               ));
 
@@ -2682,7 +2702,7 @@ final editedColor = isMe
                     constraints: const BoxConstraints(maxHeight: 100),
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100,
+                      color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF0F2F5),
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: TextField(

@@ -111,7 +111,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF0F2027) : const Color(0xFFF1F5F9);
+    final bgColor = isDark ? const Color(0xFF0B141A) : AppColors.lightScaffoldBg;
     final textColor = isDark ? Colors.white : Colors.black87;
     final dividerColor = isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade200;
 
@@ -122,10 +122,12 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
         elevation: 0,
         title: Text('Calls',
             style: GoogleFonts.sora(fontWeight: FontWeight.w800, color: textColor)),
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(gradient: AppColors.accentGradient),
-          child: Container(color: Colors.black.withOpacity(0.55)),
-        ),
+        flexibleSpace: isDark
+            ? Container(
+                decoration: const BoxDecoration(gradient: AppColors.accentGradient),
+                child: Container(color: Colors.black.withOpacity(0.55)),
+              )
+            : null,
         iconTheme: IconThemeData(color: textColor),
         actions: [
           IconButton(

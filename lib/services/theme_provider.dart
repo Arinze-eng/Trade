@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../shared/theme/app_colors.dart';
 
 /// Provides light/dark theme mode switching across the entire app.
-/// [UPDATE 2026-06-10-P4] WhatsApp-like colors for both modes across all sections
+/// [UPDATE 2026-06-10-P5] WhatsApp-exact light mode — white surfaces, green accents only where WhatsApp uses them
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.dark;
 
@@ -37,72 +38,89 @@ class ThemeProvider extends ChangeNotifier {
     );
   }
 
-  /// WhatsApp-like light theme
+  /// WhatsApp-exact light theme (2025/2026 current design)
   static ThemeData get lightTheme => ThemeData(
     brightness: Brightness.light,
     useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF075E54),
+      seedColor: AppColors.lightTabSelected,
       brightness: Brightness.light,
-      surface: Colors.white,
-      primary: const Color(0xFF075E54),
-      secondary: const Color(0xFF25D366),
+      surface: AppColors.lightSurface,
+      primary: AppColors.lightTabSelected,
+      secondary: AppColors.whatsappGreen,
     ),
-    scaffoldBackgroundColor: const Color(0xFFF0FAFA),
+    scaffoldBackgroundColor: AppColors.lightScaffoldBg,
     appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xFF075E54),
-      foregroundColor: Colors.white,
+      backgroundColor: AppColors.lightSurface,
+      foregroundColor: AppColors.textLight,
       centerTitle: false,
       elevation: 0,
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
     ),
-    cardColor: Colors.white,
-    dialogBackgroundColor: Colors.white,
-    dividerColor: const Color(0xFFE0E0E0),
+    cardColor: AppColors.lightSurface,
+    dialogBackgroundColor: AppColors.lightSurface,
+    dividerColor: AppColors.lightDivider,
     snackBarTheme: const SnackBarThemeData(
       backgroundColor: Color(0xFF323232),
       contentTextStyle: TextStyle(color: Colors.white),
     ),
     bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.lightSurface,
     ),
     drawerTheme: const DrawerThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.lightSurface,
     ),
     popupMenuTheme: const PopupMenuThemeData(
-      color: Colors.white,
+      color: AppColors.lightSurface,
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: const Color(0xFF075E54).withOpacity(0.1),
-      labelStyle: const TextStyle(color: Color(0xFF075E54)),
+      backgroundColor: AppColors.lightTabSelected.withOpacity(0.1),
+      labelStyle: const TextStyle(color: AppColors.lightTabSelected),
     ),
-    // WhatsApp green for FABs and primary actions
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
-      backgroundColor: Color(0xFF25D366),
+      backgroundColor: AppColors.whatsappGreen,
       foregroundColor: Colors.white,
+    ),
+    // WhatsApp uses a very light grey for the chat list tile backgrounds
+    // The divider is very subtle
+    listTileTheme: const ListTileThemeData(
+      contentPadding: EdgeInsets.symmetric(horizontal: 16),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: AppColors.lightDivider,
+      thickness: 0.5,
+      space: 0,
+    ),
+    // Text theme for readability
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: AppColors.textLight),
+      bodyMedium: TextStyle(color: AppColors.textLight),
+      bodySmall: TextStyle(color: AppColors.textMutedLight),
     ),
   );
 
-  /// WhatsApp-like dark theme  
+  /// WhatsApp-like dark theme
   static ThemeData get darkTheme => ThemeData(
     brightness: Brightness.dark,
     useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF075E54),
+      seedColor: AppColors.whatsappTeal,
       brightness: Brightness.dark,
-      surface: const Color(0xFF111B21),
-      primary: const Color(0xFF075E54),
-      secondary: const Color(0xFF25D366),
+      surface: AppColors.surfaceDark,
+      primary: AppColors.whatsappTeal,
+      secondary: AppColors.whatsappGreen,
     ),
-    scaffoldBackgroundColor: const Color(0xFF0B141A),
+    scaffoldBackgroundColor: AppColors.bgDark,
     appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xFF1F2C33),
+      backgroundColor: AppColors.appBarDark,
       foregroundColor: Colors.white,
       centerTitle: false,
       elevation: 0,
     ),
-    cardColor: const Color(0xFF1F2C33),
-    dialogBackgroundColor: const Color(0xFF1F2C33),
-    dividerColor: const Color(0xFF313D45),
+    cardColor: AppColors.appBarDark,
+    dialogBackgroundColor: AppColors.appBarDark,
+    dividerColor: Color(0xFF313D45),
     snackBarTheme: const SnackBarThemeData(
       backgroundColor: Color(0xFF1F2C33),
       contentTextStyle: TextStyle(color: Colors.white),
@@ -117,7 +135,7 @@ class ThemeProvider extends ChangeNotifier {
       color: Color(0xFF1F2C33),
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: const Color(0xFF075E54).withOpacity(0.2),
+      backgroundColor: AppColors.whatsappTeal.withOpacity(0.2),
       labelStyle: const TextStyle(color: Color(0xFF25D366)),
     ),
     floatingActionButtonTheme: const FloatingActionButtonThemeData(

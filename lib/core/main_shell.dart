@@ -107,12 +107,12 @@ class _BottomNav extends StatelessWidget {
     final borderColor = isDark
         ? Colors.white.withOpacity(0.08)
         : Colors.grey.shade200;
-    final iconColor = isDark ? Colors.white60 : Colors.grey.shade500;
-    final textColor = isDark ? Colors.white60 : Colors.grey.shade600;
-    final selectedTextColor = isDark ? const Color(0xFF25D366) : const Color(0xFF075E54);
+    final iconColor = isDark ? Colors.white60 : AppColors.lightTabNormal;
+    final textColor = isDark ? Colors.white60 : AppColors.lightTabNormal;
+    final selectedColor = isDark ? const Color(0xFF25D366) : AppColors.lightTabSelected;
     final selectedBg = isDark
         ? const Color(0xFF25D366).withOpacity(0.18)
-        : const Color(0xFF075E54).withOpacity(0.10);
+        : Colors.transparent; // WhatsApp doesn't use bg highlight on light mode
 
     final items = const [
       (Icons.chat_bubble_rounded, Icons.chat_bubble_outline_rounded, 'Chats'),
@@ -159,7 +159,7 @@ class _BottomNav extends StatelessWidget {
                           child: Icon(
                             selected ? active : inactive,
                             color: selected
-                                ? selectedTextColor
+                                ? selectedColor
                                 : iconColor,
                             size: 22,
                           ),
@@ -172,7 +172,7 @@ class _BottomNav extends StatelessWidget {
                             fontWeight:
                                 selected ? FontWeight.w600 : FontWeight.w400,
                             color:
-                                selected ? selectedTextColor : textColor,
+                                selected ? selectedColor : textColor,
                           ),
                         ),
                       ],
