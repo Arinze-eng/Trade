@@ -37,14 +37,6 @@ dependencies:
   permission_handler: ^11.3.1
   file_saver: ^0.2.14
   flutter_local_notifications: ^17.1.2
-  flutter_spinkit: ^5.2.1
-  google_fonts: ^6.2.1
-  flutter_animate: ^4.5.0
-  url_launcher: ^6.2.5
-  cached_network_image: ^3.3.1
-  flutter_blurhash: ^0.8.2
-  package_info_plus: ^8.0.2
-  glassmorphism: ^3.0.0
 
   # Google Drive backup/restore
   google_sign_in: ^6.2.1
