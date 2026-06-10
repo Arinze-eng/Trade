@@ -48,10 +48,11 @@ class _VpnSplashScreenState extends State<VpnSplashScreen>
     // Simulate progress while waiting
     _startProgressAnimation();
 
-    // Wait for VPN to connect or timeout after 5 seconds
-    // ── FASTER LOADING: Reduced from 8s to 5s timeout ──
-    // VPN auto-start was already triggered in main.dart BEFORE this screen renders
-    final connected = await _waitForVpnConnection(timeout: const Duration(seconds: 5));
+    // Wait for VPN to connect or timeout — keep this SHORT so the app opens
+    // fast (and instantly when offline). VPN auto-start was already triggered
+    // in the background from main(); we don't gate the whole app on it.
+    // [UPDATE 2026-06-11-FASTBOOT] Reduced from 5s → 2s for snappy cold start.
+    final connected = await _waitForVpnConnection(timeout: const Duration(seconds: 2));
 
     vpnManager.removeListener(_onVpnStateChanged);
 

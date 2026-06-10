@@ -106,6 +106,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   // Only auto-scroll when NEW messages arrive, not on every rebuild
   int _previousMessageCount = 0;
   bool _isNearBottom = true; // Track if user scrolled up
+  // [UPDATE 2026-06-11-NOBOUNCE] Whether we've done the one-time "open already
+  // at the bottom" jump. The very first time messages load we jump (no
+  // animation) straight to the latest message — just like opening a WhatsApp
+  // chat — instead of animating and visibly bouncing.
+  bool _didInitialScroll = false;
 
   // ── Performance: debounce expensive operations ──
   Timer? _markReadDebounce;
@@ -210,7 +215,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    _isNearBottom = (maxScroll - currentScroll) < 100;
+    // [UPDATE 2026-06-11-NOBOUNCE] Treat "within 120px of the bottom" as being
+    // at the bottom. This is what decides whether incoming messages auto-scroll.
+    // If the user has scrolled UP to read history, this becomes false and we
+    // will NOT yank them back down (WhatsApp behaviour).
+    _isNearBottom = (maxScroll - currentScroll) < 120;
   }
 
   bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
@@ -1177,31 +1186,47 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   }
 
   /// ── SMOOTH SCROLL FIX: Smart scroll-to-bottom ──
-  /// Only scrolls when:
-  /// 1. User is near the bottom (hasn't scrolled up to read old messages)
-  /// 2. New messages were added (not just a state update on existing messages)
+  /// Auto-scroll to the newest message — WhatsApp-style.
   ///
-  /// Uses smooth animation with easeOutCubic for WhatsApp-like feel.
+  /// Rules (this is the core of the "no rebounce / don't jump while I read" fix):
+  ///  • On the FIRST load we JUMP (no animation) straight to the bottom so the
+  ///    chat opens already showing the latest message — no visible scroll/bounce.
+  ///  • After that we ONLY animate to the bottom when the user is already near
+  ///    the bottom (_isNearBottom). If they've scrolled up to read history we
+  ///    leave their position completely untouched.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients && _isNearBottom) {
+      if (!_scrollController.hasClients) return;
+
+      // First load → jump instantly to the bottom (no animation, no bounce).
+      if (!_didInitialScroll) {
+        _didInitialScroll = true;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        _isNearBottom = true;
+        return;
+      }
+
+      // Subsequent new messages → only follow if the user is at the bottom.
+      if (_isNearBottom) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
         );
       }
     });
   }
 
-  /// Force-scroll to bottom (used when user sends a message themselves)
+  /// Force-scroll to bottom (used ONLY when the user sends a message themselves
+  /// — sending always means "take me to my new message").
   void _forceScrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
+        _isNearBottom = true;
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
         );
       }
     });
@@ -1868,8 +1893,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                       child: ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.all(16),
-                  // ── SMOOTH SCROLL: physics for buttery-smooth scrolling ──
-                  physics: const BouncingScrollPhysics(
+                  // [UPDATE 2026-06-11-NOBOUNCE] ClampingScrollPhysics removes
+                  // the iOS-style rubber-band "rebounce" the user complained
+                  // about — the list now stops dead wherever you scroll to and
+                  // never springs back. It also never auto-yanks to the bottom
+                  // unless you are already there (see _scrollToBottom).
+                  physics: const ClampingScrollPhysics(
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
                   // ── SMOOTH SCROLL: cache extent for pre-building off-screen items ──

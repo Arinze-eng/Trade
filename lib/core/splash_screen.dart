@@ -34,9 +34,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateAfterSplash() async {
-    // Brief splash visibility for branding (VPN already connected in VpnSplashScreen)
-    // ── FASTER LOADING: Reduced from 1500ms to 800ms ──
-    await Future.delayed(const Duration(milliseconds: 800));
+    // Brief splash visibility for branding (VPN already handled in background).
+    // [UPDATE 2026-06-11-FASTBOOT] Reduced 800ms → 400ms for instant feel.
+    await Future.delayed(const Duration(milliseconds: 400));
 
     if (!mounted) return;
     _navigateToApp();

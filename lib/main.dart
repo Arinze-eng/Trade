@@ -19,42 +19,95 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── FASTER LOADING: Parallel initialization ──
+  // ══════════════════════════════════════════════════════════════════════
+  // [UPDATE 2026-06-11-OFFLINE-BOOT] WhatsApp-style instant cold start.
+  //
+  // PROBLEM (was): every line below used a blocking `await` on a network
+  // call BEFORE runApp(). When the device was offline, Firebase.initializeApp,
+  // FCM.init, VpnManager.syncRemoteConfig, NotificationService.init, etc. would
+  // stall or throw, so runApp() never executed → the app froze on the native
+  // logo and never opened offline.
+  //
+  // FIX: the ONLY thing we await before runApp() is Supabase.initialize().
+  // That call restores the saved auth session from local disk (it does NOT
+  // need the network), so it returns fast even with no connectivity. We guard
+  // it with a timeout so a slow/hostile network can never block the boot.
+  // Everything else (Firebase, FCM, VPN, notifications, cleanup) is kicked off
+  // AFTER runApp() in the background — the UI is already on screen by then.
+  // ══════════════════════════════════════════════════════════════════════
 
-  // VPN auto-start FIRST (before anything else) — fire and forget
-  // [UPDATE 2026-06-08] Removed ignoreAccessCheck — VPN is PRO only
+  // Restore session locally — fast & offline-safe, but never let it hang boot.
   try {
-    await VpnManager.instance.syncRemoteConfig();
-  } catch (_) {}
-  unawaited(VpnManager.instance.autoStartOnAppOpen());
-
-  // ── FASTER LOADING: Initialize Firebase and Supabase in parallel ──
-  await Future.wait([
-    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
-    Supabase.initialize(
+    await Supabase.initialize(
       url: 'https://tlmyxuyqngkgwgjepeed.supabase.co',
       anonKey:
           'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsbXl4dXlxbmdrZ3dnamVwZWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MTcwNTIsImV4cCI6MjA5NjI5MzA1Mn0.pcCDivFiRubY05NOeUBBYvi45TNfS1bSS1oEuRluBsU',
-    ),
-  ]);
+    ).timeout(const Duration(seconds: 4));
+  } catch (e) {
+    debugPrint('Supabase.initialize timed out/failed (continuing offline): $e');
+  }
 
-  // ── Local notification channels ──
-  await NotificationService.init();
-  await BackgroundMessagePoller.init();
-
-  // [UPDATE 2026-06-10-WA] Start the offline message queue listener globally
-  // so queued messages auto-retry the moment connectivity returns.
-  OfflineMessageQueue.instance.startListening();
-  // Try one initial flush in case there are queued messages from a previous run
-  unawaited(OfflineMessageQueue.instance.flush());
-
-  // ── Firebase Cloud Messaging (real-time push notifications ONLY) ──
-  await FcmService().init();
-
-  // ── WhatsApp-style notification tap handler ──
+  // ── WhatsApp-style notification tap handler (set up synchronously) ──
   NotificationService.onNotificationTap = (payload) {
     _handleNotificationTap(payload);
   };
+
+  // ── Paint the UI IMMEDIATELY — app opens instantly, even fully offline ──
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: VpnManager.instance),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
+
+  // ── Everything below runs in the BACKGROUND, after first paint ──
+  unawaited(_initBackgroundServices());
+}
+
+/// All network-dependent / non-critical initialization. Runs AFTER runApp()
+/// so the UI is never blocked. Each step is independently guarded so one
+/// failure (e.g. offline) can never cascade.
+Future<void> _initBackgroundServices() async {
+  // VPN: pull remote config + auto-start (fire and forget, guarded).
+  unawaited(() async {
+    try {
+      await VpnManager.instance.syncRemoteConfig();
+    } catch (_) {}
+    try {
+      await VpnManager.instance.autoStartOnAppOpen();
+    } catch (_) {}
+  }());
+
+  // Firebase core (needed for FCM). Guarded so offline can't throw up the stack.
+  try {
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+  } catch (e) {
+    debugPrint('Firebase init deferred/failed (offline?): $e');
+  }
+
+  // Local notification channels + background poller (mostly local, but cheap
+  // to defer and keeps boot snappy).
+  try {
+    await NotificationService.init();
+  } catch (_) {}
+  try {
+    await BackgroundMessagePoller.init();
+  } catch (_) {}
+
+  // [UPDATE 2026-06-10-WA] Offline message queue — auto-retry on reconnect.
+  OfflineMessageQueue.instance.startListening();
+  unawaited(OfflineMessageQueue.instance.flush());
+
+  // Firebase Cloud Messaging (real-time push). Needs network — guarded.
+  try {
+    await FcmService().init();
+  } catch (e) {
+    debugPrint('FCM init deferred/failed (offline?): $e');
+  }
 
   // Listen for auth state changes and sync FCM token
   Supabase.instance.client.auth.onAuthStateChange.listen((event) {
@@ -86,16 +139,6 @@ void main() async {
       await supabaseService.cleanupExpiredCallSignals();
     } catch (_) {}
   }());
-
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: VpnManager.instance),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
 }
 
 /// Handle notification tap navigation — WhatsApp-style.

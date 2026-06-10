@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path_provider/path_provider.dart';
@@ -180,12 +182,86 @@ class SupabaseService {
     return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  // [UPDATE 2026-06-11-OFFLINE-BOOT] In-memory + on-disk profile cache so the
+  // app can render the user's identity (and the whole chat shell) INSTANTLY
+  // and fully offline. Previously getProfile() was a raw network call with no
+  // cache and no timeout, so MainShell.loadProfile() would await forever when
+  // offline → the user was stuck on a spinner right after the splash logo.
+  static final Map<String, Map<String, dynamic>> _profileMemCache = {};
+
+  static String _profileCacheKey(String userId) => 'profile_cache_v1:$userId';
+
+  /// Offline-first profile fetch.
+  ///
+  /// 1. If we have a cached profile (memory → disk), return it IMMEDIATELY and
+  ///    kick off a silent background refresh.
+  /// 2. If there is no cache, try the network with a short timeout so we never
+  ///    hang the UI when the device is offline.
   Future<Map<String, dynamic>?> getProfile(String userId) async {
-    return await _client
+    // 1) Memory cache → instant.
+    final mem = _profileMemCache[userId];
+    if (mem != null) {
+      unawaited(_refreshProfileInBackground(userId));
+      return mem;
+    }
+
+    // 2) Disk cache → instant (and warm the memory cache).
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_profileCacheKey(userId));
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final cached = Map<String, dynamic>.from(decoded);
+          _profileMemCache[userId] = cached;
+          unawaited(_refreshProfileInBackground(userId));
+          return cached;
+        }
+      }
+    } catch (_) {}
+
+    // 3) No cache — hit the network, but guard with a timeout so offline can't
+    //    freeze the UI. On failure/timeout we simply return null.
+    try {
+      final data = await _fetchProfileRemote(userId)
+          .timeout(const Duration(seconds: 6));
+      if (data != null) await _cacheProfile(userId, data);
+      return data;
+    } catch (e) {
+      debugPrint('getProfile network failed/timed out (offline?): $e');
+      return null;
+    }
+  }
+
+  /// Raw network read of a profile row.
+  Future<Map<String, dynamic>?> _fetchProfileRemote(String userId) async {
+    final row = await _client
         .from('profiles')
-        .select('id,email,username,display_name,trial_ends_at,is_subscribed,subscription_expiry,last_seen,hide_last_seen,hide_read_receipts,created_at,is_blocked,blocked_reason,blocked_at,about,avatar_url,tier,subscription_started_at,subscription_ends_at,referral_code,referral_count,referred_by,streak_days,last_streak_date,daily_earnings,total_earnings')
+        .select(
+            'id,email,username,display_name,trial_ends_at,is_subscribed,subscription_expiry,last_seen,hide_last_seen,hide_read_receipts,created_at,is_blocked,blocked_reason,blocked_at,about,avatar_url,tier,subscription_started_at,subscription_ends_at,referral_code,referral_count,referred_by,streak_days,last_streak_date,daily_earnings,total_earnings')
         .eq('id', userId)
         .maybeSingle();
+    if (row == null) return null;
+    return Map<String, dynamic>.from(row);
+  }
+
+  /// Silently refresh the cache from the network (never throws, never blocks).
+  Future<void> _refreshProfileInBackground(String userId) async {
+    try {
+      final fresh = await _fetchProfileRemote(userId)
+          .timeout(const Duration(seconds: 8));
+      if (fresh != null) await _cacheProfile(userId, fresh);
+    } catch (_) {
+      // Offline / slow — keep the existing cache.
+    }
+  }
+
+  Future<void> _cacheProfile(String userId, Map<String, dynamic> data) async {
+    _profileMemCache[userId] = data;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_profileCacheKey(userId), jsonEncode(data));
+    } catch (_) {}
   }
 
   Future<Map<String, dynamic>?> getProfileByChatUuid(String chatUuid) async {
