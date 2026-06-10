@@ -340,13 +340,18 @@ class SupabaseService {
       'rich_text_json': richTextJson,
       'is_forwarded': isForwarded,
       'forwarded_from_id': forwardedFromId,
-      // [UPDATE 2026-06-10] Mark as no longer sending on insert
+      // [UPDATE 2026-06-10-FIX] Initial state: sent (saved server-side, single gray tick)
+      // The edge function will flip is_delivered=true once FCM successfully pushes to recipient
       'is_sending': false,
+      'is_delivered': false,
+      'is_read': false,
     }).select('id').maybeSingle();
 
     final int? newMessageId = insertResult?['id'] as int?;
 
-    // [UPDATE #2] Trigger push notification via Supabase Edge Function
+    // [UPDATE 2026-06-10-FIX] Push notification — edge function also handles
+    // marking the message as delivered server-side after FCM success.
+    // This drives the WhatsApp-style double-gray-tick feedback.
     try {
       await _client.functions.invoke('send-push-notification', body: {
         'receiver_id': receiverId,
@@ -354,17 +359,11 @@ class SupabaseService {
         'message_type': messageType,
         'content': messageType == 'text' ? content : '[${messageType.capitalize()}]',
         'type': 'message',
+        if (newMessageId != null) 'message_id': newMessageId,
       });
-
-      // [UPDATE 2026-06-10] Mark as delivered if FCM succeeded
-      if (newMessageId != null) {
-        await _client.from('messages').update({
-          'is_delivered': true,
-          'delivered_at': DateTime.now().toUtc().toIso8601String(),
-        }).eq('id', newMessageId);
-      }
     } catch (_) {
-      // Push notification is best-effort; message is already delivered via Realtime
+      // Push notification is best-effort; recipient will get the message
+      // via Realtime / background poller anyway.
     }
 
     // Bump daily streak (best-effort — never block message send).
@@ -854,16 +853,28 @@ class SupabaseService {
       'expires_at': DateTime.now().toUtc().add(const Duration(seconds: 30)).toIso8601String(),
     });
 
-    // [UPDATE #2] Trigger push notification for incoming call via FCM
-    // This ensures the callee gets notified even if app is terminated
+    // [UPDATE #2 / 2026-06-10-FIX] Push notification routing per signal type
+    // - call_offer  → high-priority FCM, opens incoming-call UI on receiver
+    // - hangup/cancel → push 'call_ended' so the receiver auto-dismisses
+    //                  any lingering incoming-call notification (kills phantom popup)
     try {
-      await _client.functions.invoke('send-push-notification', body: {
-        'receiver_id': toId,
-        'sender_id': _client.auth.currentUser?.id ?? '',
-        'message_type': 'call',
-        'content': type == 'video_call' ? 'Video call' : 'Voice call',
-        'type': 'call',
-      });
+      if (type == 'call_offer') {
+        await _client.functions.invoke('send-push-notification', body: {
+          'receiver_id': toId,
+          'sender_id': _client.auth.currentUser?.id ?? '',
+          'message_type': 'call',
+          'content': payload['is_video'] == true ? 'Video call' : 'Voice call',
+          'type': 'call',
+        });
+      } else if (type == 'hangup' || type == 'cancel') {
+        await _client.functions.invoke('send-push-notification', body: {
+          'receiver_id': toId,
+          'sender_id': _client.auth.currentUser?.id ?? '',
+          'message_type': 'call',
+          'content': 'Call ended',
+          'type': 'call_ended',
+        });
+      }
     } catch (_) {}
   }
 

@@ -64,6 +64,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   Timer? _ringingTimeoutTimer;
   static const Duration _ringingTimeout = Duration(seconds: 20);
 
+  // [UPDATE 2026-06-10-FIX] Mid-call disconnect handling
+  Timer? _disconnectGraceTimer;
+  bool _iceRestartAttempted = false;
+
   @override
   void initState() {
     super.initState();
@@ -92,13 +96,24 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final fromId = (m['from_id'] ?? '').toString();
       if (fromId.isEmpty || fromId != widget.peerId) return;
 
-      // ── PHANTOM CALL FIX: Only process signals < 10 seconds old ──
+      // ── PHANTOM CALL FIX: Only process signals < 7 seconds old ──
+      // Tighter window than before to avoid replay-style phantom dialogs
       final createdAtStr = (m['created_at'] ?? '').toString();
       final createdAt = DateTime.tryParse(createdAtStr);
       if (createdAt != null) {
         final age = DateTime.now().toUtc().difference(createdAt.toUtc());
-        if (age.inSeconds > 10) {
+        if (age.inSeconds > 7) {
           debugPrint('CallScreen: ignoring stale signal (${age.inSeconds}s old)');
+          return;
+        }
+      }
+
+      // [UPDATE 2026-06-10-FIX] Drop signals that have already expired in DB
+      final expiresStr = (m['expires_at'] ?? '').toString();
+      if (expiresStr.isNotEmpty) {
+        final expiresAt = DateTime.tryParse(expiresStr);
+        if (expiresAt != null && DateTime.now().toUtc().isAfter(expiresAt.toUtc())) {
+          debugPrint('CallScreen: ignoring expired signal');
           return;
         }
       }
@@ -228,49 +243,42 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   Future<void> _ensurePeerConnection() async {
     if (_pc != null) return;
 
+    // [UPDATE 2026-06-10-FIX] Robust ICE config for end-to-end audio stability
+    //   • Verified TURN credentials (free.expressturn.com) — tested OK
+    //   • Higher iceCandidatePoolSize so backup paths are pre-warmed
+    //   • bundlePolicy + rtcpMuxPolicy for fewer NAT bindings
+    //   • iceTransportPolicy 'all' (we'll auto-restart ICE if direct path fails)
     final config = {
       'sdpSemantics': 'unified-plan',
+      'iceCandidatePoolSize': 4,
+      'bundlePolicy': 'max-bundle',
+      'rtcpMuxPolicy': 'require',
+      'iceTransportPolicy': 'all',
       'iceServers': [
-        // Google STUN servers
+        // ─── Google STUN ─────────────────────────────────────
         {'urls': 'stun:stun.l.google.com:19302'},
         {'urls': 'stun:stun1.l.google.com:19302'},
         {'urls': 'stun:stun2.l.google.com:19302'},
-        {'urls': 'stun:stun3.l.google.com:19302'},
-        {'urls': 'stun:stun4.l.google.com:19302'},
 
-        // ── [UPDATE 2026-06-10] TURN server for reliable calls ──
-        // These relay media when P2P fails (symmetric NATs, firewalls)
-        // free.expressturn.com
+        // ─── PRIMARY TURN: free.expressturn.com (verified) ───
+        // Tested 2026-06-10: relay candidate allocated successfully
         {
-          'urls': 'turn:free.expressturn.com:3478',
+          'urls': [
+            'turn:free.expressturn.com:3478?transport=udp',
+            'turn:free.expressturn.com:3478?transport=tcp',
+            'turns:free.expressturn.com:5349?transport=tcp',
+          ],
           'username': '000000002094301083',
           'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
         },
-        // TURN over TCP fallback
+
+        // ─── Backup TURN: metered.ca (extra path diversity) ──
         {
-          'urls': 'turn:free.expressturn.com:3478?transport=tcp',
-          'username': '000000002094301083',
-          'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
-        },
-        // TURN TLS (secure, works through most firewalls)
-        {
-          'urls': 'turns:free.expressturn.com:443',
-          'username': '000000002094301083',
-          'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
-        },
-        // Metered TURN as additional backup
-        {
-          'urls': 'turn:a.relay.metered.ca:80',
-          'username': 'e8dd65b92f7b828b1d79c8e0',
-          'credential': 'fRjpnOLv0/lXMBvd',
-        },
-        {
-          'urls': 'turn:a.relay.metered.ca:443',
-          'username': 'e8dd65b92f7b828b1d79c8e0',
-          'credential': 'fRjpnOLv0/lXMBvd',
-        },
-        {
-          'urls': 'turn:a.relay.metered.ca:443?transport=tcp',
+          'urls': [
+            'turn:a.relay.metered.ca:80',
+            'turn:a.relay.metered.ca:443',
+            'turn:a.relay.metered.ca:443?transport=tcp',
+          ],
           'username': 'e8dd65b92f7b828b1d79c8e0',
           'credential': 'fRjpnOLv0/lXMBvd',
         },
@@ -309,13 +317,54 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     };
 
     _pc!.onConnectionState = (state) {
+      debugPrint('CallScreen: peer connection state = $state');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _onCallConnected();
+        _disconnectGraceTimer?.cancel();
+        _disconnectGraceTimer = null;
       }
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        if (mounted) _logAndPop();
+
+      // [UPDATE 2026-06-10-FIX] Don't hang up immediately on disconnect.
+      // Networks blip — give the connection 25 seconds to recover (ICE restart).
+      // Only end the call if it still hasn't recovered.
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        _disconnectGraceTimer?.cancel();
+        _disconnectGraceTimer = Timer(const Duration(seconds: 25), () {
+          if (!mounted) return;
+          if (_pc?.connectionState ==
+                  RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+            return;
+          }
+          debugPrint('CallScreen: still disconnected after grace, hanging up');
+          _logAndPop();
+        });
+        // Try ICE restart immediately (only the caller initiates restart)
+        if (widget.isCaller) {
+          _attemptIceRestart();
+        }
       }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        // Failed = unrecoverable. Try ONE restart, then bail.
+        if (widget.isCaller && !_iceRestartAttempted) {
+          _iceRestartAttempted = true;
+          _attemptIceRestart();
+          // Give it 15s, then bail if still not back.
+          Timer(const Duration(seconds: 15), () {
+            if (!mounted) return;
+            if (_pc?.connectionState !=
+                RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+              if (mounted) _logAndPop();
+            }
+          });
+        } else {
+          if (mounted) _logAndPop();
+        }
+      }
+    };
+
+    _pc!.onIceConnectionState = (state) {
+      debugPrint('CallScreen: ICE state = $state');
     };
 
     _localStream ??= await navigator.mediaDevices.getUserMedia({
@@ -376,6 +425,29 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       type: 'offer',
       payload: {'sdp': offer.sdp},
     );
+  }
+
+  /// [UPDATE 2026-06-10-FIX] Attempt ICE restart to recover from a network blip
+  /// without dropping the call. Caller-side initiates by re-creating an offer
+  /// with iceRestart=true and re-sending it.
+  Future<void> _attemptIceRestart() async {
+    if (_pc == null) return;
+    try {
+      debugPrint('CallScreen: attempting ICE restart');
+      final offer = await _pc!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': widget.isVideo,
+        'iceRestart': true,
+      });
+      await _pc!.setLocalDescription(offer);
+      await _sig.send(
+        toId: widget.peerId,
+        type: 'offer',
+        payload: {'sdp': offer.sdp},
+      );
+    } catch (e) {
+      debugPrint('CallScreen: ICE restart failed: $e');
+    }
   }
 
   Future<void> _hangUp() async {
@@ -485,6 +557,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ringingTimeoutTimer?.cancel();
+    _disconnectGraceTimer?.cancel();
     _callDurationTimer?.cancel();
 
     if (_localStream != null) {

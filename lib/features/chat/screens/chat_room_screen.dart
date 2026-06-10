@@ -415,10 +415,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
         if (fromId != widget.otherUser['id']) continue;
 
         final type = (s['type'] ?? '').toString();
+
+        // [UPDATE 2026-06-10-FIX] Phantom call popup fix
+        // Reject stale signals (>10s old) and expired signals
+        final createdStr = (s['created_at'] ?? '').toString();
+        final created = DateTime.tryParse(createdStr);
+        if (created != null) {
+          final age = DateTime.now().toUtc().difference(created.toUtc());
+          if (age.inSeconds > 10) continue;
+        }
+        final expiresStr = (s['expires_at'] ?? '').toString();
+        if (expiresStr.isNotEmpty) {
+          final exp = DateTime.tryParse(expiresStr);
+          if (exp != null && DateTime.now().toUtc().isAfter(exp.toUtc())) continue;
+        }
+
         if (type == 'call_offer' || type == 'offer') {
           final payload = s['payload'] as Map<String, dynamic>?;
           final isVideo = payload?['is_video'] == true;
           _showIncomingCallDialog(fromId, isVideo);
+        } else if (type == 'hangup' || type == 'cancel' || type == 'call_ended') {
+          // Caller hung up before we picked up — kill any in-flight popup
+          if (mounted && Navigator.canPop(context)) {
+            try {
+              Navigator.of(context, rootNavigator: true).maybePop();
+            } catch (_) {}
+          }
+          NotificationService.cancelCallNotification(fromId);
         }
       }
     });
@@ -1679,9 +1702,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             children: [
           Expanded(
             child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _supabaseService.getMessages(
-                widget.currentUser['id'],
-                widget.otherUser['id'],
+              // [UPDATE 2026-06-10-FIX] Offline-first stream — local DB is the
+              // source of truth for instant rendering; live Supabase data merges
+              // in as it arrives. Works fully offline.
+              stream: _localChatStore.watchConversationOfflineFirst(
+                ownerUserId: widget.currentUser['id'],
+                otherUserId: widget.otherUser['id'],
               ),
               builder: (context, snapshot) {
                 // ── WHATSAPP-LIKE: Merge local pending messages with remote messages ──
@@ -2107,13 +2133,33 @@ final editedColor = isMe
               ],
               if (isMe) ...[
                 const SizedBox(width: 8),
-                Icon(
-                  _myHideReadReceipts ? Icons.done_rounded : Icons.done_all_rounded,
-                  size: 14,
-                  color: (!_myHideReadReceipts && message['is_read'] == true)
-                      ? const Color(0xFF2AABEE)
-                      : Colors.white38,
-                ),
+                // [UPDATE 2026-06-10-FIX] Three-state tick logic — WhatsApp parity
+                //   • single gray check       → message saved on server but recipient
+                //                              has no internet (FCM not delivered yet)
+                //   • double gray check       → recipient device received via FCM
+                //                              (online but hasn't opened the chat)
+                //   • double BLUE  check      → recipient opened the chat & saw it
+                Builder(builder: (_) {
+                  final isReadVal = message['is_read'] == true;
+                  final isDelivVal = message['is_delivered'] == true;
+                  final hideRR = _myHideReadReceipts;
+
+                  IconData icon;
+                  Color color;
+
+                  if (isReadVal && !hideRR) {
+                    icon = Icons.done_all_rounded;
+                    color = const Color(0xFF2AABEE); // blue
+                  } else if (isDelivVal) {
+                    icon = Icons.done_all_rounded;
+                    color = Colors.white60; // double gray
+                  } else {
+                    icon = Icons.done_rounded; // single gray
+                    color = Colors.white38;
+                  }
+
+                  return Icon(icon, size: 14, color: color);
+                }),
               ],
             ],
           ),

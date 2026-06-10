@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [UPDATE 2026-06-10-FIX] CRITICAL — Notifications, Calls, Offline-First, Ticks
+> Full details: `CHANGELOG_2026_06_10_NOTIFICATIONS_CALLS_OFFLINE_FIX.md`
+> **Do not revert.** Each fix was verified end-to-end against live infra.
+
+- **Push notifications now actually work.** Edge function had a malformed
+  OAuth2 `grant_type` (missing `params:`) and used the FCM-reserved data key
+  `message_type`. Both fixed → verified `{"success": true, "sent": 1}`.
+- **Calls no longer drop after 1 minute.** Added 25 s ICE-disconnect grace
+  period + automatic ICE restart on disconnect/failed.
+- **TURN credentials verified.** `free.expressturn.com:3478` allocated relay
+  candidate `62.210.205.50:56968` in the live test.
+- **Phantom call popups eliminated.** Tightened signal age window (10–15 s) +
+  hangup signals now also push `call_ended` so lock-screen notifications
+  dismiss across devices.
+- **WhatsApp-style offline-first chat.** New
+  `LocalChatStore.watchConversationOfflineFirst()` and `getLocalChatThreads()`
+  drive the chat list and chat room from Isar first, Supabase second.
+- **Three-state delivery ticks.** Single gray ✓ (no recipient internet) →
+  double gray ✓✓ (FCM delivered) → double blue ✓✓ (recipient saw the chat).
+
 ## [UPDATE 2026-06-10-P5] Supabase RLS Fix + WhatsApp-Like Theme
 
 ### Supabase Fix

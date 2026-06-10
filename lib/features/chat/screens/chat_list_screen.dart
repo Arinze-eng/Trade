@@ -168,6 +168,25 @@ class _ChatListScreenState extends State<ChatListScreen>
 
         final type = (s['type'] ?? '').toString();
         if (type == 'call_offer') {
+          // [UPDATE 2026-06-10-FIX] Phantom call popup fix
+          // Only show incoming-call notification if the signal is fresh (<10s)
+          // AND the receiver column matches the current user (RLS already filters
+          // but we double-check). Otherwise we get phantom popups from stale signals.
+          final createdStr = (s['created_at'] ?? '').toString();
+          final created = DateTime.tryParse(createdStr);
+          if (created != null) {
+            final age = DateTime.now().toUtc().difference(created.toUtc());
+            if (age.inSeconds > 10) continue; // stale signal
+          }
+          final expiresStr = (s['expires_at'] ?? '').toString();
+          if (expiresStr.isNotEmpty) {
+            final exp = DateTime.tryParse(expiresStr);
+            if (exp != null && DateTime.now().toUtc().isAfter(exp.toUtc())) continue;
+          }
+          // Confirm we are the intended recipient
+          final toId = (s['to_id'] ?? '').toString();
+          if (toId.isNotEmpty && toId != user.id) continue;
+
           final payload = s['payload'] as Map<String, dynamic>?;
           final isVideo = payload?['is_video'] == true;
           final fromId = (s['from_id'] ?? '').toString();
@@ -177,6 +196,12 @@ class _ChatListScreenState extends State<ChatListScreen>
             body: 'Someone is calling you on CDN-NETCHAT',
             payload: NotificationService.buildPayload(type: 'call', id: fromId),
           );
+        } else if (type == 'hangup' || type == 'cancel' || type == 'call_ended') {
+          // [UPDATE 2026-06-10-FIX] Cancel any active incoming-call notification
+          // when the caller hangs up — this kills the phantom-call popup
+          // that lingered after the call ended.
+          final fromId = (s['from_id'] ?? '').toString();
+          NotificationService.cancelCallNotification(fromId);
         }
       }
     });
@@ -444,17 +469,45 @@ class _ChatListScreenState extends State<ChatListScreen>
     });
   }
 
+  /// [UPDATE 2026-06-10-FIX] Offline-first thread loading (WhatsApp-style)
+  /// 1. Show local cached threads INSTANTLY (works without internet)
+  /// 2. In parallel, fetch fresh data from Supabase and merge
+  /// 3. If offline, the user still sees the full cached chat list
   Future<void> _refreshThreads() async {
+    final user = _supabaseService.currentUser;
+    if (user == null) return;
+
     try {
-      if (mounted) setState(() => _threadsLoading = true);
-      final data = await _supabaseService.getChatThreads();
-      if (!mounted) return;
+      if (mounted && _threads.isEmpty) {
+        setState(() => _threadsLoading = true);
+      }
 
-      // ── WHATSAPP-LIKE: Pre-cache all thread meta eagerly ──
-      _preloadThreadMetaCache(data);
-      _threadMetaCacheLoaded = true;
+      // ── PHASE 1: load from local DB instantly (offline-first) ──
+      try {
+        final local = await _localChatStore.getLocalChatThreads(ownerUserId: user.id);
+        if (local.isNotEmpty && mounted) {
+          _preloadThreadMetaCache(local);
+          _threadMetaCacheLoaded = true;
+          setState(() {
+            _threads = local;
+            _threadsLoading = false;
+          });
+        }
+      } catch (_) {}
 
-      setState(() => _threads = data);
+      // ── PHASE 2: fetch fresh from Supabase ──
+      try {
+        final data = await _supabaseService.getChatThreads();
+        if (!mounted) return;
+        _preloadThreadMetaCache(data);
+        _threadMetaCacheLoaded = true;
+        setState(() => _threads = data);
+
+        // Hydrate local DB in the background so future loads are instant
+        unawaited(_localChatStore.hydrateAllConversations(ownerUserId: user.id));
+      } catch (_) {
+        // Stay with whatever the local DB gave us — offline OK
+      }
     } catch (_) {
     } finally {
       if (mounted) setState(() => _threadsLoading = false);

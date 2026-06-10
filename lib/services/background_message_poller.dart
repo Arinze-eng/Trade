@@ -73,34 +73,55 @@ Future<void> _pollUnreadMessages(SupabaseClient client, String userId) async {
 
 Future<void> _pollIncomingCalls(SupabaseClient client, String userId) async {
   try {
-    // Check for recent call signals (last 30 seconds)
-    final cutoff = DateTime.now().toUtc().subtract(const Duration(seconds: 30));
+    // [UPDATE 2026-06-10-FIX] Tighten cutoff to 15s and check expires_at
+    final cutoff = DateTime.now().toUtc().subtract(const Duration(seconds: 15));
     final res = await client
         .from('call_signals')
-        .select('id,from_id,type,payload,created_at')
+        .select('id,from_id,type,payload,created_at,expires_at')
         .eq('to_id', userId)
         .order('created_at', ascending: false)
-        .limit(5);
+        .limit(10);
 
     final list = (res as List).cast<Map>();
     if (list.isEmpty) return;
 
-    // Check for recent call offers
+    // Walk in reverse-chronological. If a hangup arrives after an offer,
+    // we should NOT show the popup. Track which from_ids have a recent hangup.
+    final hangupFroms = <String>{};
+    for (final raw in list) {
+      final signal = Map<String, dynamic>.from(raw);
+      final type = (signal['type'] ?? '').toString();
+      if (type == 'hangup' || type == 'cancel' || type == 'call_ended') {
+        hangupFroms.add((signal['from_id'] ?? '').toString());
+      }
+    }
+
     for (final raw in list) {
       final signal = Map<String, dynamic>.from(raw);
       final type = (signal['type'] ?? '').toString();
       final createdAt = DateTime.tryParse((signal['created_at'] ?? '').toString());
       if (createdAt == null) continue;
-      if (createdAt.isBefore(cutoff)) continue; // Too old
+      if (createdAt.isBefore(cutoff)) continue; // too old
+
+      // Check expires_at if present
+      final expiresStr = (signal['expires_at'] ?? '').toString();
+      if (expiresStr.isNotEmpty) {
+        final exp = DateTime.tryParse(expiresStr);
+        if (exp != null && DateTime.now().toUtc().isAfter(exp.toUtc())) continue;
+      }
 
       if (type == 'call_offer' || type == 'offer') {
+        final fromId = (signal['from_id'] ?? '').toString();
+        // Suppress phantom call: if there's a hangup from same caller, skip
+        if (hangupFroms.contains(fromId)) continue;
+
         final payload = signal['payload'] as Map<String, dynamic>?;
         final isVideo = payload?['is_video'] == true;
 
         await NotificationService.showIncomingCallNotification(
           title: isVideo ? 'Incoming Video Call' : 'Incoming Call',
           body: 'Someone is calling you on CDN-NETCHAT',
-          payload: NotificationService.buildPayload(type: 'call', id: (signal['from_id'] ?? '').toString()),
+          payload: NotificationService.buildPayload(type: 'call', id: fromId),
         );
         break; // Only notify once per poll
       }

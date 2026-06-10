@@ -413,4 +413,108 @@ class LocalChatStore {
       }
     });
   }
+
+  /// [UPDATE 2026-06-10-FIX] Offline-first hybrid stream
+  /// Yields local cached messages INSTANTLY first, then merges live updates
+  /// from Supabase Realtime. Works fully offline (just local stream).
+  Stream<List<Map<String, dynamic>>> watchConversationOfflineFirst({
+    required String ownerUserId,
+    required String otherUserId,
+  }) {
+    StreamSubscription? localSub;
+    StreamSubscription? remoteSub;
+
+    final remoteMessages = <int, Map<String, dynamic>>{};
+    final localMessages = <int, Map<String, dynamic>>{};
+
+    Map<String, dynamic> _localToMap(LocalMessage m) {
+      return {
+        'id': m.remoteId,
+        'sender_id': m.senderId,
+        'receiver_id': m.receiverId,
+        'message_type': m.messageType,
+        'content': m.content,
+        'media_path': m.mediaPath,
+        'media_mime': m.mediaMime,
+        'media_duration_ms': m.mediaDurationMs,
+        'media_name': m.mediaName,
+        'media_size_bytes': m.mediaSizeBytes,
+        'caption': m.caption,
+        'reply_to_id': m.replyToRemoteId,
+        'created_at': m.createdAt.toIso8601String(),
+        'edited_at': m.editedAt?.toIso8601String(),
+        'deleted_at': m.deletedAt?.toIso8601String(),
+        'is_read': m.isRead,
+        'is_delivered': m.isDelivered,
+        'delivered_at': m.deliveredAt?.toIso8601String(),
+        'is_sending': m.isSending,
+        'is_liked': m.isLiked,
+        'reactions': m.reactions,
+        'is_pinned': m.isPinned,
+        'media_expires_at': m.mediaExpiresAt?.toIso8601String(),
+        'expires_at': m.expiresAt?.toIso8601String(),
+        'view_once': m.viewOnce,
+        'viewed_by_sender': m.viewedBySender,
+        'viewed_by_receiver': m.viewedByReceiver,
+        'deleted_for_sender': m.deletedForSender,
+        'deleted_for_receiver': m.deletedForReceiver,
+      };
+    }
+
+    late final StreamController<List<Map<String, dynamic>>> controller;
+    controller = StreamController<List<Map<String, dynamic>>>(
+      onListen: () {
+        void emit() {
+          final merged = <int, Map<String, dynamic>>{...localMessages, ...remoteMessages};
+          final list = merged.values.toList()
+            ..sort((a, b) {
+              final ap = a['is_pinned'] == true;
+              final bp = b['is_pinned'] == true;
+              if (ap && !bp) return -1;
+              if (!ap && bp) return 1;
+              final ac = a['created_at']?.toString() ?? '';
+              final bc = b['created_at']?.toString() ?? '';
+              return ac.compareTo(bc);
+            });
+          if (!controller.isClosed) controller.add(list);
+        }
+
+        localSub = watchConversation(ownerUserId: ownerUserId, otherUserId: otherUserId).listen(
+          (msgs) {
+            localMessages.clear();
+            for (final m in msgs) {
+              if (m.remoteId == null) continue;
+              localMessages[m.remoteId!] = _localToMap(m);
+            }
+            emit();
+          },
+          onError: (_) {},
+        );
+
+        remoteSub = _supabase.getMessages(ownerUserId, otherUserId).listen(
+          (msgs) {
+            remoteMessages.clear();
+            for (final m in msgs) {
+              final id = m['id'];
+              if (id == null) continue;
+              final intId = int.tryParse(id.toString());
+              if (intId == null) continue;
+              remoteMessages[intId] = m;
+              unawaited(upsertFromRemote(ownerUserId: ownerUserId, otherUserId: otherUserId, m: m));
+            }
+            emit();
+          },
+          onError: (_) {
+            // Offline / network error — local data still flows
+          },
+        );
+      },
+      onCancel: () async {
+        await localSub?.cancel();
+        await remoteSub?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
 }

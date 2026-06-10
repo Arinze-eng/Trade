@@ -38,6 +38,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           payload: NotificationService.buildPayload(type: 'call', id: chatId),
         );
         break;
+      case 'call_ended':
+      case 'hangup':
+        // [UPDATE 2026-06-10-FIX] Dismiss any active call notification when caller hangs up
+        await NotificationService.cancelCallNotification(
+          (data['from_id'] ?? data['sender_id'] ?? chatId).toString(),
+        );
+        break;
       case 'status':
         final statusId = data['status_id'] ?? chatId;
         await NotificationService.showNewStatusNotification(
@@ -246,6 +253,12 @@ class FcmService {
           title: notification.title ?? 'Incoming Call',
           body: notification.body ?? '',
           payload: NotificationService.buildPayload(type: 'call', id: chatId),
+        );
+        break;
+      case 'call_ended':
+      case 'hangup':
+        NotificationService.cancelCallNotification(
+          (data['from_id'] ?? data['sender_id'] ?? chatId).toString(),
         );
         break;
       case 'status':
