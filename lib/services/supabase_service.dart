@@ -325,10 +325,73 @@ class SupabaseService {
   }
 
   // ---- Threads ----
+  // [UPDATE 2026-06-11-WA-OFFLINE] Offline-first list caching.
+  // getChatThreads / getMyGroups / discoverUsers are network RPCs with no
+  // timeout. On a slow or down network they would hang the caller's
+  // `await` (e.g. ChatListScreen._initApp → Future.wait), which is what
+  // produced the "rolling spinner then load" on cold start. We now:
+  //   • return the last good result from a disk cache INSTANTLY, and
+  //   • hit the network with a short timeout, refreshing the cache silently.
+  // The on-device Isar store remains the source of truth for chat content;
+  // these caches only make the *thread/group/discover lists* appear instantly.
+  static final Map<String, List<Map<String, dynamic>>> _listMemCache = {};
+
+  static String _listCacheKey(String name) => 'list_cache_v1:$name';
+
+  Future<List<Map<String, dynamic>>> _cachedList({
+    required String name,
+    required Future<List<Map<String, dynamic>>> Function() fetch,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    // 1) Try the network first, but never let it hang the UI.
+    try {
+      final fresh = await fetch().timeout(timeout);
+      _listMemCache[name] = fresh;
+      unawaited(_persistList(name, fresh));
+      return fresh;
+    } catch (e) {
+      debugPrint('cachedList[$name] network failed/timed out (offline?): $e');
+    }
+
+    // 2) Network failed → memory cache.
+    final mem = _listMemCache[name];
+    if (mem != null) return mem;
+
+    // 3) Disk cache → warm memory.
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_listCacheKey(name));
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          final list =
+              decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          _listMemCache[name] = list;
+          return list;
+        }
+      }
+    } catch (_) {}
+
+    return const [];
+  }
+
+  Future<void> _persistList(String name, List<Map<String, dynamic>> list) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_listCacheKey(name), jsonEncode(list));
+    } catch (_) {}
+  }
+
   Future<List<Map<String, dynamic>>> getChatThreads() async {
-    final res = await _client.rpc('get_chat_threads');
-    final list = (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    return list;
+    return _cachedList(
+      name: 'chat_threads',
+      fetch: () async {
+        final res = await _client.rpc('get_chat_threads');
+        return (res as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      },
+    );
   }
 
   // ---- Delete chat thread ----
@@ -1533,8 +1596,15 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getMyGroups() async {
-    final res = await _client.rpc('get_my_groups');
-    return (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return _cachedList(
+      name: 'my_groups',
+      fetch: () async {
+        final res = await _client.rpc('get_my_groups');
+        return (res as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      },
+    );
   }
 
   Future<List<Map<String, dynamic>>> getGroupMembers(String groupId) async {
@@ -2019,12 +2089,16 @@ class SupabaseService {
 
   /// Pro-only discovery list. Free users get an empty array.
   Future<List<Map<String, dynamic>>> discoverUsers({int limit = 100}) async {
-    try {
-      final res = await _client.rpc('discover_users', params: {'p_limit': limit});
-      return (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } catch (_) {
-      return [];
-    }
+    return _cachedList(
+      name: 'discover_users',
+      fetch: () async {
+        final res =
+            await _client.rpc('discover_users', params: {'p_limit': limit});
+        return (res as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      },
+    );
   }
 
   /// Bump streak for the current user (called on each successful message send).

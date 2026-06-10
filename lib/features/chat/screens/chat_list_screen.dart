@@ -70,7 +70,11 @@ class _ChatListScreenState extends State<ChatListScreen>
   final _discoverSearchController = TextEditingController();
   final _threadSearchController = TextEditingController();
 
-  bool _isInitializing = true;
+  // [UPDATE 2026-06-11-WA-OFFLINE] Default to false so we NEVER flash a
+  // full-screen "Initializing…" spinner. The list area renders cached threads
+  // instantly (or a lightweight empty state) while the network syncs in the
+  // background — exactly like WhatsApp.
+  bool _isInitializing = false;
   String? _initError;
 
   bool _hasAccess = true;
@@ -208,32 +212,91 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> _initApp() async {
-    setState(() {
-      _isInitializing = true;
-      _initError = null;
-    });
+    // [UPDATE 2026-06-11-WA-OFFLINE] WhatsApp-style instant chat list.
+    //
+    // PROBLEM (was): _initApp set _isInitializing=true (full-screen spinner)
+    // and then `await`ed getProfile → checkAccessStatus → refreshVpnAccess →
+    // Future.wait([threads, discover, groups, status]) BEFORE clearing the
+    // spinner. On a cold/offline/slow start the user stared at "Initializing…"
+    // — the "rolling sign then load" complaint.
+    //
+    // FIX: paint the list immediately from local Isar threads (and an instant
+    // fallback profile), then do ALL network work in the background. We only
+    // ever show the spinner when there is genuinely nothing cached to show.
 
+    final user = _supabaseService.currentUser;
+    if (user == null) {
+      setState(() {
+        _isInitializing = false;
+        _initError = 'No active session. Please sign in again.';
+      });
+      return;
+    }
+
+    // ── Instant fallback profile from the auth session (no await) ──
+    final usernameFromMeta = (user.userMetadata?['username'] ?? '').toString();
+    final displayNameFromMeta =
+        (user.userMetadata?['display_name'] ?? '').toString();
+    final fallbackProfile = {
+      'id': user.id,
+      'email': user.email,
+      'username': usernameFromMeta.isNotEmpty
+          ? usernameFromMeta
+          : user.id.substring(0, 8).toUpperCase(),
+      'display_name': displayNameFromMeta,
+    };
+
+    // ── PHASE 0: show cached local threads INSTANTLY (works fully offline) ──
+    bool hadCachedThreads = false;
     try {
-      final user = _supabaseService.currentUser;
-
-      if (user == null) {
-        setState(() {
-          _isInitializing = false;
-          _initError = 'No active session. Please sign in again.';
-        });
-        return;
+      final local =
+          await _localChatStore.getLocalChatThreads(ownerUserId: user.id);
+      if (local.isNotEmpty) {
+        hadCachedThreads = true;
+        _preloadThreadMetaCache(local);
+        _threadMetaCacheLoaded = true;
+        if (mounted) {
+          setState(() {
+            _threads = local;
+            _profile = fallbackProfile;
+            _isInitializing = false;
+            _threadsLoading = false;
+          });
+        }
       }
+    } catch (_) {}
 
-      final profile = await _supabaseService.getProfile(user.id);
-      final access = await _supabaseService.checkAccessStatus(user.id);
+    // If we had nothing cached, render the shell anyway (no full-screen
+    // spinner). The list area shows its own lightweight loading/empty state.
+    if (mounted) {
+      setState(() {
+        _profile ??= fallbackProfile;
+        _isInitializing = false;
+        _initError = null;
+      });
+    }
+
+    // ── PHASE 1: hydrate everything in the BACKGROUND (never blocks UI) ──
+    unawaited(_hydrateInBackground(user.id, fallbackProfile, hadCachedThreads));
+  }
+
+  /// All network-dependent initialization. Runs after the UI is already on
+  /// screen so the chat list is never gated behind the network.
+  Future<void> _hydrateInBackground(
+    String userId,
+    Map<String, dynamic> fallbackProfile,
+    bool hadCachedThreads,
+  ) async {
+    // Profile (offline-first cached + timed out inside the service).
+    try {
+      final profile = await _supabaseService.getProfile(userId);
 
       if (profile != null && profile['is_blocked'] == true) {
         await _supabaseService.signOut();
         if (mounted) {
-          final reason =
-              (profile['blocked_reason'] ??
-                      'Your account has been blocked by admin.')
-                  .toString();
+          final reason = (profile['blocked_reason'] ??
+                  'Your account has been blocked by admin.')
+              .toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(reason),
@@ -245,26 +308,16 @@ class _ChatListScreenState extends State<ChatListScreen>
         return;
       }
 
-      final usernameFromMeta =
-          (user.userMetadata?['username'] ?? '').toString();
-      final displayNameFromMeta =
-          (user.userMetadata?['display_name'] ?? '').toString();
-      final fallbackProfile = {
-        'id': user.id,
-        'email': user.email,
-        'username':
-            usernameFromMeta.isNotEmpty
-                ? usernameFromMeta
-                : user.id.substring(0, 8).toUpperCase(),
-        'display_name': displayNameFromMeta,
-      };
+      if (mounted) {
+        setState(() => _profile = profile ?? fallbackProfile);
+      }
+    } catch (_) {}
 
+    // Access status (controls VPN + subscription gating). Guarded.
+    try {
+      final access = await _supabaseService.checkAccessStatus(userId);
       final hasAccess = access['hasAccess'] == true;
-
-      setState(() {
-        _profile = profile ?? fallbackProfile;
-        _hasAccess = hasAccess;
-      });
+      if (mounted) setState(() => _hasAccess = hasAccess);
 
       await VpnManager.instance.refreshVpnAccess();
       if (!hasAccess) {
@@ -281,30 +334,25 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
         }
       }
+    } catch (_) {}
 
-      _supabaseService.updateLastSeen(user.id);
+    try {
+      _supabaseService.updateLastSeen(userId);
+    } catch (_) {}
 
-      await Future.wait([
-        _refreshThreads(),
-        _loadDiscoverUsers(),
-        _loadGroups(),
-        _loadActiveStatusUsers(),
-      ]);
+    // Lists — each refresh is independently guarded + offline-first cached.
+    await Future.wait([
+      _refreshThreads(),
+      _loadDiscoverUsers(),
+      _loadGroups(),
+      _loadActiveStatusUsers(),
+    ]);
 
-      _startThreadRefreshListener();
+    _startThreadRefreshListener();
 
-      // Init business data
-      await _initBusinessData();
+    await _initBusinessData();
 
-      setState(() => _isInitializing = false);
-
-      _handlePendingNotificationNavigation();
-    } catch (e) {
-      setState(() {
-        _isInitializing = false;
-        _initError = e.toString();
-      });
-    }
+    _handlePendingNotificationNavigation();
   }
 
   void _handlePendingNotificationNavigation() {

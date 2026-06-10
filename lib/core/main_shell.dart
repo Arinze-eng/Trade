@@ -22,41 +22,49 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
   final _supabaseService = SupabaseService();
   Map<String, dynamic>? _profile;
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    // [UPDATE 2026-06-11-WA-OFFLINE] WhatsApp-style instant shell.
+    // PROBLEM (was): _loading=true blocked the ENTIRE app behind a full-screen
+    // spinner until getProfile() returned. On a cold/offline start that's the
+    // "rolling sign then load" the user complained about.
+    // FIX: build an instant fallback profile from the auth session metadata so
+    // the shell paints immediately, then hydrate the real profile in the
+    // background (getProfile is already offline-first cached + timed out).
+    _profile = _instantFallbackProfile();
+    _hydrateProfile();
   }
 
-  Future<void> _loadProfile() async {
+  /// Build a usable profile synchronously from the already-restored auth
+  /// session — no network, no disk, no await. Lets the UI render instantly.
+  Map<String, dynamic>? _instantFallbackProfile() {
+    final user = _supabaseService.currentUser;
+    if (user == null) return null;
+    final usernameFromMeta = (user.userMetadata?['username'] ?? '').toString();
+    final displayNameFromMeta =
+        (user.userMetadata?['display_name'] ?? '').toString();
+    return {
+      'id': user.id,
+      'email': user.email,
+      'username': usernameFromMeta.isNotEmpty
+          ? usernameFromMeta
+          : user.id.substring(0, 8).toUpperCase(),
+      'display_name': displayNameFromMeta,
+    };
+  }
+
+  Future<void> _hydrateProfile() async {
     try {
       final user = _supabaseService.currentUser;
-      if (user == null) {
-        setState(() => _loading = false);
-        return;
-      }
+      if (user == null) return;
       final p = await _supabaseService.getProfile(user.id);
-      final usernameFromMeta = (user.userMetadata?['username'] ?? '').toString();
-      final displayNameFromMeta =
-          (user.userMetadata?['display_name'] ?? '').toString();
-      final fallback = {
-        'id': user.id,
-        'email': user.email,
-        'username': usernameFromMeta.isNotEmpty
-            ? usernameFromMeta
-            : user.id.substring(0, 8).toUpperCase(),
-        'display_name': displayNameFromMeta,
-      };
-      if (mounted) {
-        setState(() {
-          _profile = p ?? fallback;
-          _loading = false;
-        });
+      if (p != null && mounted) {
+        setState(() => _profile = p);
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      // Offline — keep the instant fallback profile.
     }
   }
 
@@ -64,13 +72,6 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     // [UPDATE 2026-06-08-P2] Use theme-aware background
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
-    
-    if (_loading) {
-      return Scaffold(
-        backgroundColor: bgColor,
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
 
     final pages = <Widget>[
       const ChatListScreen(),
