@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// Provides light/dark theme mode switching across the entire app.
-/// Used via ChangeNotifierProvider at the root level.
+/// [UPDATE 2026-06-10-P4] WhatsApp-like colors for both modes across all sections
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.dark;
 
@@ -11,98 +11,118 @@ class ThemeProvider extends ChangeNotifier {
 
   void toggleTheme() {
     _themeMode = isDarkMode ? ThemeMode.light : ThemeMode.dark;
-    SystemChrome.setSystemUIOverlayStyle(
-      isDarkMode
-          ? const SystemUiOverlayStyle(
-              statusBarIconBrightness: Brightness.dark,
-              statusBarBrightness: Brightness.light,
-            )
-          : const SystemUiOverlayStyle(
-              statusBarIconBrightness: Brightness.light,
-              statusBarBrightness: Brightness.dark,
-            ),
-    );
+    _updateStatusBar();
     notifyListeners();
   }
 
   void setThemeMode(ThemeMode mode) {
     if (_themeMode != mode) {
       _themeMode = mode;
-      final isLight = mode == ThemeMode.light;
-      SystemChrome.setSystemUIOverlayStyle(
-        isLight
-            ? const SystemUiOverlayStyle(
-                statusBarIconBrightness: Brightness.dark,
-                statusBarBrightness: Brightness.light,
-              )
-            : const SystemUiOverlayStyle(
-                statusBarIconBrightness: Brightness.light,
-                statusBarBrightness: Brightness.dark,
-              ),
-      );
+      _updateStatusBar();
       notifyListeners();
     }
   }
 
-  /// Get the light theme for the app
+  void _updateStatusBar() {
+    SystemChrome.setSystemUIOverlayStyle(
+      isDarkMode
+          ? const SystemUiOverlayStyle(
+              statusBarIconBrightness: Brightness.light,
+              statusBarBrightness: Brightness.dark,
+            )
+          : const SystemUiOverlayStyle(
+              statusBarIconBrightness: Brightness.dark,
+              statusBarBrightness: Brightness.light,
+            ),
+    );
+  }
+
+  /// WhatsApp-like light theme
   static ThemeData get lightTheme => ThemeData(
     brightness: Brightness.light,
     useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF7C3AED),
+      seedColor: const Color(0xFF075E54),
       brightness: Brightness.light,
-      surface: const Color(0xFFF8FAFC),
+      surface: Colors.white,
+      primary: const Color(0xFF075E54),
+      secondary: const Color(0xFF25D366),
     ),
-    scaffoldBackgroundColor: const Color(0xFFF1F5F9),
+    scaffoldBackgroundColor: const Color(0xFFF0FAFA),
     appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xFFF8FAFC),
-      foregroundColor: Color(0xFF1E293B),
-      centerTitle: false,
-      elevation: 0,
-    ),
-    cardColor: const Color(0xFFFFFFFF),
-    dialogBackgroundColor: const Color(0xFFFFFFFF),
-    dividerColor: const Color(0xFFE2E8F0),
-    snackBarTheme: const SnackBarThemeData(
-      backgroundColor: Color(0xFF1E293B),
-      contentTextStyle: TextStyle(color: Colors.white),
-    ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: Color(0xFFFFFFFF),
-    ),
-    drawerTheme: const DrawerThemeData(
-      backgroundColor: Color(0xFFFFFFFF),
-    ),
-  );
-
-  /// Get the dark theme for the app  
-  static ThemeData get darkTheme => ThemeData(
-    brightness: Brightness.dark,
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF7C3AED),
-      brightness: Brightness.dark,
-      surface: const Color(0xFF111827),
-    ),
-    scaffoldBackgroundColor: const Color(0xFF0B0F17),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Color(0xFF075E54),
       foregroundColor: Colors.white,
       centerTitle: false,
       elevation: 0,
     ),
-    cardColor: const Color(0xFF111827),
-    dialogBackgroundColor: const Color(0xFF1E293B),
-    dividerColor: Colors.white12,
+    cardColor: Colors.white,
+    dialogBackgroundColor: Colors.white,
+    dividerColor: const Color(0xFFE0E0E0),
     snackBarTheme: const SnackBarThemeData(
-      backgroundColor: Color(0xFF1E293B),
+      backgroundColor: Color(0xFF323232),
       contentTextStyle: TextStyle(color: Colors.white),
     ),
     bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: Color(0xFF1E293B),
+      backgroundColor: Colors.white,
     ),
     drawerTheme: const DrawerThemeData(
-      backgroundColor: Color(0xFF0F1F28),
+      backgroundColor: Colors.white,
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: Colors.white,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: const Color(0xFF075E54).withOpacity(0.1),
+      labelStyle: const TextStyle(color: Color(0xFF075E54)),
+    ),
+    // WhatsApp green for FABs and primary actions
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: Color(0xFF25D366),
+      foregroundColor: Colors.white,
+    ),
+  );
+
+  /// WhatsApp-like dark theme  
+  static ThemeData get darkTheme => ThemeData(
+    brightness: Brightness.dark,
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF075E54),
+      brightness: Brightness.dark,
+      surface: const Color(0xFF111B21),
+      primary: const Color(0xFF075E54),
+      secondary: const Color(0xFF25D366),
+    ),
+    scaffoldBackgroundColor: const Color(0xFF0B141A),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFF1F2C33),
+      foregroundColor: Colors.white,
+      centerTitle: false,
+      elevation: 0,
+    ),
+    cardColor: const Color(0xFF1F2C33),
+    dialogBackgroundColor: const Color(0xFF1F2C33),
+    dividerColor: const Color(0xFF313D45),
+    snackBarTheme: const SnackBarThemeData(
+      backgroundColor: Color(0xFF1F2C33),
+      contentTextStyle: TextStyle(color: Colors.white),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Color(0xFF1F2C33),
+    ),
+    drawerTheme: const DrawerThemeData(
+      backgroundColor: Color(0xFF111B21),
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: Color(0xFF1F2C33),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: const Color(0xFF075E54).withOpacity(0.2),
+      labelStyle: const TextStyle(color: Color(0xFF25D366)),
+    ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: Color(0xFF25D366),
+      foregroundColor: Colors.white,
     ),
   );
 }

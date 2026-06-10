@@ -103,16 +103,16 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF0F2027) : Colors.white;
+    final bgColor = isDark ? const Color(0xFF1F2C33) : Colors.white;
     final borderColor = isDark
-        ? Colors.white.withOpacity(0.06)
+        ? Colors.white.withOpacity(0.08)
         : Colors.grey.shade200;
     final iconColor = isDark ? Colors.white60 : Colors.grey.shade500;
     final textColor = isDark ? Colors.white60 : Colors.grey.shade600;
-    final selectedTextColor = isDark ? Colors.white : AppColors.violet;
+    final selectedTextColor = isDark ? const Color(0xFF25D366) : const Color(0xFF075E54);
     final selectedBg = isDark
-        ? AppColors.violet.withOpacity(0.18)
-        : AppColors.violet.withOpacity(0.10);
+        ? const Color(0xFF25D366).withOpacity(0.18)
+        : const Color(0xFF075E54).withOpacity(0.10);
 
     final items = const [
       (Icons.chat_bubble_rounded, Icons.chat_bubble_outline_rounded, 'Chats'),
@@ -159,7 +159,7 @@ class _BottomNav extends StatelessWidget {
                           child: Icon(
                             selected ? active : inactive,
                             color: selected
-                                ? AppColors.violet
+                                ? selectedTextColor
                                 : iconColor,
                             size: 22,
                           ),

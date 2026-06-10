@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [UPDATE 2026-06-10-P5] Supabase RLS Fix + WhatsApp-Like Theme
+
+### Supabase Fix
+- Fixed infinite recursion in `group_members` SELECT policy — replaced self-referencing query with `SECURITY DEFINER` function (`is_group_member`)
+- Made `is_group_admin` function `SECURITY DEFINER` to prevent RLS recursion on INSERT/UPDATE
+- Group creation now works without hitting `42P17` recursion error
+
+### Theme Overhaul (WhatsApp-Like Colors)
+- **Light mode:** WhatsApp green `#075E54` app bar, `#F0FAFA` background, white cards
+- **Dark mode:** WhatsApp dark `#1F2C33` app bar, `#0B141A` background
+- Updated `ThemeProvider` with WhatsApp-style colors across all sections
+- Updated `AppColors` with proper dark/light variants
+- Main shell bottom nav uses WhatsApp green selected state instead of violet
+- Drawer background adapts: dark `#111B21`, light white
+- Colors cascade through all screens (wallet, channels, calls, settings)
+
 ## [UPDATE 2026-06-10-P4] WhatsApp-Like Smoothness — Local-First Messaging & Batch Meta Loading
 
 ### Local-First Message Sending (chat_room_screen.dart)

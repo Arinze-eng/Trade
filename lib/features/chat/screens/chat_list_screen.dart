@@ -1520,7 +1520,9 @@ class _ChatListScreenState extends State<ChatListScreen>
     final email = _profile?['email'] ?? '';
 
     return Drawer(
-      backgroundColor: const Color(0xFF0F1F28),
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF111B21)
+          : Colors.white,
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
