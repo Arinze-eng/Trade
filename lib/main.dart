@@ -12,6 +12,7 @@ import 'services/background_message_poller.dart';
 import 'services/supabase_service.dart';
 import 'services/fcm_service.dart';
 import 'services/theme_provider.dart';
+import 'local_db/local_chat_store.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -54,14 +55,28 @@ void main() async {
       final userId = event.session!.user.id;
       debugPrint('Auth state: signed in as $userId — syncing FCM token');
       FcmService().syncTokenToServer(userId);
+
+      // [UPDATE 2026-06-10] Offline-first: hydrate all conversations on sign-in
+      unawaited(() async {
+        try {
+          final store = LocalChatStore();
+          await store.hydrateAllConversations(ownerUserId: userId);
+          debugPrint('Offline-first: hydrated all conversations for $userId');
+        } catch (_) {}
+      }());
+
+      // [UPDATE 2026-06-10] Clean up stale call signals on startup
+      unawaited(SupabaseService().cleanupExpiredCallSignals());
     }
   });
 
-  // Cleanup expired media from Supabase on app open — fire and forget
+  // Cleanup expired media + call signals from Supabase on app open — fire and forget
   unawaited(() async {
     try {
       final supabaseService = SupabaseService();
       await supabaseService.cleanupExpiredSupabaseMedia();
+      // [UPDATE 2026-06-10] Clean up stale call signals to prevent phantom calls
+      await supabaseService.cleanupExpiredCallSignals();
     } catch (_) {}
   }());
 

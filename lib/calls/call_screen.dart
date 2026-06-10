@@ -8,6 +8,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'supabase_signaling_client.dart';
 import '../services/supabase_service.dart';
 
+/// [UPDATE 2026-06-10] TURN server + phantom call fix + audio stability
+///
+/// Phantom call fix:
+/// - Call signals older than 10 seconds are ignored
+/// - Local timeout: ringing state auto-cancels after 20 seconds
+/// - Only process signals from the expected peer
+///
+/// TURN:
+/// - Added expressturn.com TURN servers for reliable NAT traversal
+/// - Multiple fallback TURN entries (UDP, TCP, TLS)
+/// - Kept Google STUN as primary fallback
 class CallScreen extends StatefulWidget {
   final String selfId;
   final String peerId;
@@ -40,28 +51,32 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   bool _speakerOn = true;
 
   bool _connected = false;
-  bool _didLogCall = false; // Prevent double-logging
+  bool _didLogCall = false;
   DateTime? _callStartTime;
   Timer? _callDurationTimer;
   Duration _callDuration = Duration.zero;
 
-  // ICE candidate buffer for trickle ICE
   final List<RTCIceCandidate> _pendingCandidates = [];
   bool _remoteDescriptionSet = false;
+
+  // Phantom call prevention: track ringing start time
+  DateTime? _ringingStartedAt;
+  Timer? _ringingTimeoutTimer;
+  static const Duration _ringingTimeout = Duration(seconds: 20);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _speakerOn = widget.isVideo; // Set speaker based on call type
     _sig = SupabaseSignalingClient(client: Supabase.instance.client, selfId: widget.selfId);
     _init();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Handle app going to background during call
     if (state == AppLifecycleState.paused && _connected) {
-      // Keep call running - WebRTC works in background
+      // Keep call running
     }
   }
 
@@ -69,33 +84,37 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
-    // ── CRITICAL FIX: Audio session configuration ──
-    // Must configure audio mode BEFORE getting media stream.
-    // This ensures the microphone input is captured and audio
-    // is routed correctly through the speaker/earpiece.
     try {
       await _configureAudioSession();
     } catch (_) {}
 
     await _sig.connect(onSignal: (m) async {
       final fromId = (m['from_id'] ?? '').toString();
-      if (fromId.isNotEmpty && fromId != widget.peerId) return;
+      if (fromId.isEmpty || fromId != widget.peerId) return;
+
+      // ── PHANTOM CALL FIX: Only process signals < 10 seconds old ──
+      final createdAtStr = (m['created_at'] ?? '').toString();
+      final createdAt = DateTime.tryParse(createdAtStr);
+      if (createdAt != null) {
+        final age = DateTime.now().toUtc().difference(createdAt.toUtc());
+        if (age.inSeconds > 10) {
+          debugPrint('CallScreen: ignoring stale signal (${age.inSeconds}s old)');
+          return;
+        }
+      }
 
       final type = (m['type'] ?? '').toString();
       final payload = Map<String, dynamic>.from(m['payload'] as Map);
 
       if (type == 'offer' || type == 'call_offer') {
-        // Incoming call offer
-        if (type == 'call_offer') {
-          // This is just the ring signal, the actual SDP offer follows
-          // But in our simplified model, call_offer also triggers CallScreen
-          return;
-        }
+        if (type == 'call_offer') return;
+
+        // Start ringing timeout
+        _startRingingTimeout();
+
         await _ensurePeerConnection();
         await _pc!.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'offer'));
         _remoteDescriptionSet = true;
-
-        // Flush buffered ICE candidates
         await _flushPendingCandidates();
 
         final ans = await _pc!.createAnswer();
@@ -111,10 +130,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         await _ensurePeerConnection();
         await _pc?.setRemoteDescription(RTCSessionDescription(payload['sdp'] as String?, 'answer'));
         _remoteDescriptionSet = true;
-
-        // Flush buffered ICE candidates
         await _flushPendingCandidates();
-
         _onCallConnected();
       }
 
@@ -125,7 +141,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         if (_remoteDescriptionSet) {
           await _pc?.addCandidate(candidate);
         } else {
-          // Buffer until remote description is set
           _pendingCandidates.add(candidate);
         }
       }
@@ -137,41 +152,30 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     if (widget.isCaller) {
       await _startAsCaller();
+      _startRingingTimeout();
     }
   }
 
-  /// Configure audio session for crystal-clear voice calls.
-  /// This is the FIX for "call works but no one hears each other."
-  ///
-  /// Root causes fixed:
-  /// 1. Audio mode must be set to "communication" for WebRTC voice chat
-  /// 2. Speaker must be enabled AFTER the local stream is created
-  /// 3. Echo cancellation + noise suppression must be enabled
-  /// 4. Audio track must be unmuted explicitly
+  /// Phantom call fix: auto-cancel ringing after 20 seconds
+  void _startRingingTimeout() {
+    _ringingStartedAt ??= DateTime.now();
+    _ringingTimeoutTimer?.cancel();
+    _ringingTimeoutTimer = Timer(_ringingTimeout, () {
+      if (!_connected && mounted) {
+        debugPrint('CallScreen: ringing timeout - auto cancelling');
+        _logAndPop();
+      }
+    });
+  }
+
   Future<void> _configureAudioSession() async {
-    // flutter_webrtc ^0.12.x uses `ensureAudioSession()` (older
-    // `setAudioMode(...)` / `enableSpeakerphone(...)` helpers were removed).
     try {
       await Helper.ensureAudioSession();
     } catch (_) {}
 
-    // Default route video calls to speakerphone.
-    if (widget.isVideo) {
-      try {
-        await Helper.setSpeakerphoneOn(true);
-        _speakerOn = true;
-      } catch (_) {}
-    }
-
-    // For voice calls, route through earpiece by default;
-    // for video calls, use speakerphone.
-    // User can toggle with the speaker button.
-    if (!widget.isVideo) {
-      try {
-        await Helper.setSpeakerphoneOn(false); // Use earpiece for voice calls
-        _speakerOn = false;
-      } catch (_) {}
-    }
+    try {
+      await Helper.setSpeakerphoneOn(_speakerOn);
+    } catch (_) {}
   }
 
   Future<void> _flushPendingCandidates() async {
@@ -184,10 +188,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void _onCallConnected() {
     if (_connected) return;
     setState(() => _connected = true);
-    _callStartTime = DateTime.now();
 
-    // Re-apply audio configuration after connection is established
-    // This ensures audio routing is correct at the moment of connection
+    // Cancel ringing timeout since call connected
+    _ringingTimeoutTimer?.cancel();
+
+    _callStartTime = DateTime.now();
     _reapplyAudioConfig();
 
     _callDurationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -199,11 +204,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     });
   }
 
-  /// Re-apply audio configuration after WebRTC connection is established.
-  /// Some Android devices reset audio routing when the connection transitions.
   Future<void> _reapplyAudioConfig() async {
     try {
-      // Ensure local audio track is enabled and not muted
       if (_localStream != null) {
         for (final track in _localStream!.getAudioTracks()) {
           track.enabled = true;
@@ -212,21 +214,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           } catch (_) {}
         }
       }
-
-      // Re-apply speaker/earpiece routing
       try {
         await Helper.setSpeakerphoneOn(_speakerOn);
-      } catch (_) {}
-
-      // Re-enable echo cancellation
-      try {
-        if (_localStream != null) {
-          for (final track in _localStream!.getAudioTracks()) {
-            try {
-              await Helper.setMicrophoneMute(false, track);
-            } catch (_) {}
-          }
-        }
       } catch (_) {}
     } catch (_) {}
   }
@@ -240,20 +229,36 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     if (_pc != null) return;
 
     final config = {
-      // Fix audio on more devices by forcing unified-plan.
       'sdpSemantics': 'unified-plan',
       'iceServers': [
-        // Google STUN servers (for basic NAT traversal)
+        // Google STUN servers
         {'urls': 'stun:stun.l.google.com:19302'},
         {'urls': 'stun:stun1.l.google.com:19302'},
         {'urls': 'stun:stun2.l.google.com:19302'},
         {'urls': 'stun:stun3.l.google.com:19302'},
         {'urls': 'stun:stun4.l.google.com:19302'},
 
-        // ── FREE TURN servers for reliable connectivity ──
-        // These relay media when direct P2P connection fails
-        // (e.g., symmetric NATs, corporate firewalls)
-        // Using Metered TURN (free tier, no signup required)
+        // ── [UPDATE 2026-06-10] TURN server for reliable calls ──
+        // These relay media when P2P fails (symmetric NATs, firewalls)
+        // free.expressturn.com
+        {
+          'urls': 'turn:free.expressturn.com:3478',
+          'username': '000000002094301083',
+          'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
+        },
+        // TURN over TCP fallback
+        {
+          'urls': 'turn:free.expressturn.com:3478?transport=tcp',
+          'username': '000000002094301083',
+          'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
+        },
+        // TURN TLS (secure, works through most firewalls)
+        {
+          'urls': 'turns:free.expressturn.com:443',
+          'username': '000000002094301083',
+          'credential': 'Uz10c+zqsHQgQYKs1zGs2A+/09M=',
+        },
+        // Metered TURN as additional backup
         {
           'urls': 'turn:a.relay.metered.ca:80',
           'username': 'e8dd65b92f7b828b1d79c8e0',
@@ -289,7 +294,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       );
     };
 
-    // Unified-plan: onTrack is the primary callback
     _pc!.onTrack = (e) {
       if (e.streams.isNotEmpty) {
         _remoteRenderer.srcObject = e.streams.first;
@@ -298,7 +302,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     };
 
-    // Plan-B fallback (some devices/older builds)
     _pc!.onAddStream = (stream) {
       _remoteRenderer.srcObject = stream;
       _onCallConnected();
@@ -315,8 +318,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     };
 
-    // ── CRITICAL: Get user media with proper constraints ──
-    // Audio constraints: enable echo cancellation, noise suppression, auto gain
     _localStream ??= await navigator.mediaDevices.getUserMedia({
       'audio': {
         'mandatory': {
@@ -344,8 +345,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           : false,
     });
 
-    // ── CRITICAL FIX: Ensure audio track is enabled and unmuted ──
-    // Some Android devices start the audio track in a muted state
+    // Ensure audio track is enabled
     for (final track in _localStream!.getAudioTracks()) {
       track.enabled = true;
       try {
@@ -353,7 +353,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       } catch (_) {}
     }
 
-    // Add all tracks to the peer connection
     for (final t in _localStream!.getTracks()) {
       await _pc!.addTrack(t, _localStream!);
     }
@@ -380,7 +379,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _hangUp() async {
-    // Send hangup signal
     try {
       await _sig.send(
         toId: widget.peerId,
@@ -394,7 +392,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   void _logAndPop() async {
     if (_didLogCall) {
-      // Already logging, just clean up
+      _ringingTimeoutTimer?.cancel();
       _callDurationTimer?.cancel();
       await _sig.close();
       await _pc?.close();
@@ -408,12 +406,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
     _didLogCall = true;
 
+    _ringingTimeoutTimer?.cancel();
     _callDurationTimer?.cancel();
 
     final durationSeconds = _callDuration.inSeconds;
 
     if (durationSeconds > 0) {
-      // Completed call
       await _supabaseService.logCompletedCall(
         callerId: widget.selfId,
         receiverId: widget.peerId,
@@ -421,7 +419,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         durationSeconds: durationSeconds,
       );
     } else if (widget.isCaller) {
-      // Missed call (caller hung up before anyone answered)
       await _supabaseService.logMissedCall(
         callerId: widget.selfId,
         receiverId: widget.peerId,
@@ -429,15 +426,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       );
     }
 
-    // Clean up old call signals
     await _supabaseService.cleanupOldCallSignals();
+    await _supabaseService.cleanupExpiredCallSignals();
 
     await _sig.close();
     await _pc?.close();
     _pc = null;
 
-    // ── FIX: Stop all tracks before disposing stream ──
-    // This releases the microphone properly so other apps can use it
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
         track.stop();
@@ -446,7 +441,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       _localStream = null;
     }
 
-    // Best-effort: restore default audio routing after call ends.
     try {
       await Helper.setSpeakerphoneOn(true);
     } catch (_) {}
@@ -490,16 +484,15 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ringingTimeoutTimer?.cancel();
     _callDurationTimer?.cancel();
 
-    // Stop all tracks to release microphone
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
         track.stop();
       }
     }
 
-    // Reset audio mode
     try {
       Helper.setSpeakerphoneOn(true);
     } catch (_) {}

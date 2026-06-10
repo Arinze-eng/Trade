@@ -47,118 +47,133 @@ const LocalMessageSchema = CollectionSchema(
       name: r'deletedForSender',
       type: IsarType.bool,
     ),
-    r'editedAt': PropertySchema(
+    r'deliveredAt': PropertySchema(
       id: 6,
+      name: r'deliveredAt',
+      type: IsarType.dateTime,
+    ),
+    r'editedAt': PropertySchema(
+      id: 7,
       name: r'editedAt',
       type: IsarType.dateTime,
     ),
     r'expiresAt': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'expiresAt',
       type: IsarType.dateTime,
     ),
+    r'isDelivered': PropertySchema(
+      id: 9,
+      name: r'isDelivered',
+      type: IsarType.bool,
+    ),
     r'isLiked': PropertySchema(
-      id: 8,
+      id: 10,
       name: r'isLiked',
       type: IsarType.bool,
     ),
     r'isPinned': PropertySchema(
-      id: 9,
+      id: 11,
       name: r'isPinned',
       type: IsarType.bool,
     ),
     r'isRead': PropertySchema(
-      id: 10,
+      id: 12,
       name: r'isRead',
       type: IsarType.bool,
     ),
+    r'isSending': PropertySchema(
+      id: 13,
+      name: r'isSending',
+      type: IsarType.bool,
+    ),
     r'localMediaPath': PropertySchema(
-      id: 11,
+      id: 14,
       name: r'localMediaPath',
       type: IsarType.string,
     ),
     r'mediaDurationMs': PropertySchema(
-      id: 12,
+      id: 15,
       name: r'mediaDurationMs',
       type: IsarType.long,
     ),
     r'mediaExpiresAt': PropertySchema(
-      id: 13,
+      id: 16,
       name: r'mediaExpiresAt',
       type: IsarType.dateTime,
     ),
     r'mediaMime': PropertySchema(
-      id: 14,
+      id: 17,
       name: r'mediaMime',
       type: IsarType.string,
     ),
     r'mediaName': PropertySchema(
-      id: 15,
+      id: 18,
       name: r'mediaName',
       type: IsarType.string,
     ),
     r'mediaPath': PropertySchema(
-      id: 16,
+      id: 19,
       name: r'mediaPath',
       type: IsarType.string,
     ),
     r'mediaSizeBytes': PropertySchema(
-      id: 17,
+      id: 20,
       name: r'mediaSizeBytes',
       type: IsarType.long,
     ),
     r'messageType': PropertySchema(
-      id: 18,
+      id: 21,
       name: r'messageType',
       type: IsarType.string,
     ),
     r'otherUserId': PropertySchema(
-      id: 19,
+      id: 22,
       name: r'otherUserId',
       type: IsarType.string,
     ),
     r'ownerUserId': PropertySchema(
-      id: 20,
+      id: 23,
       name: r'ownerUserId',
       type: IsarType.string,
     ),
     r'reactions': PropertySchema(
-      id: 21,
+      id: 24,
       name: r'reactions',
       type: IsarType.string,
     ),
     r'receiverId': PropertySchema(
-      id: 22,
+      id: 25,
       name: r'receiverId',
       type: IsarType.string,
     ),
     r'remoteId': PropertySchema(
-      id: 23,
+      id: 26,
       name: r'remoteId',
       type: IsarType.long,
     ),
     r'replyToRemoteId': PropertySchema(
-      id: 24,
+      id: 27,
       name: r'replyToRemoteId',
       type: IsarType.long,
     ),
     r'senderId': PropertySchema(
-      id: 25,
+      id: 28,
       name: r'senderId',
       type: IsarType.string,
     ),
     r'viewOnce': PropertySchema(
-      id: 26,
+      id: 29,
       name: r'viewOnce',
       type: IsarType.bool,
     ),
     r'viewedByReceiver': PropertySchema(
-      id: 27,
+      id: 30,
       name: r'viewedByReceiver',
       type: IsarType.bool,
     ),
     r'viewedBySender': PropertySchema(
-      id: 28,
+      id: 31,
       name: r'viewedBySender',
       type: IsarType.bool,
     )
@@ -280,29 +295,32 @@ void _localMessageSerialize(
   writer.writeDateTime(offsets[3], object.deletedAt);
   writer.writeBool(offsets[4], object.deletedForReceiver);
   writer.writeBool(offsets[5], object.deletedForSender);
-  writer.writeDateTime(offsets[6], object.editedAt);
-  writer.writeDateTime(offsets[7], object.expiresAt);
-  writer.writeBool(offsets[8], object.isLiked);
-  writer.writeBool(offsets[9], object.isPinned);
-  writer.writeBool(offsets[10], object.isRead);
-  writer.writeString(offsets[11], object.localMediaPath);
-  writer.writeLong(offsets[12], object.mediaDurationMs);
-  writer.writeDateTime(offsets[13], object.mediaExpiresAt);
-  writer.writeString(offsets[14], object.mediaMime);
-  writer.writeString(offsets[15], object.mediaName);
-  writer.writeString(offsets[16], object.mediaPath);
-  writer.writeLong(offsets[17], object.mediaSizeBytes);
-  writer.writeString(offsets[18], object.messageType);
-  writer.writeString(offsets[19], object.otherUserId);
-  writer.writeString(offsets[20], object.ownerUserId);
-  writer.writeString(offsets[21], object.reactions);
-  writer.writeString(offsets[22], object.receiverId);
-  writer.writeLong(offsets[23], object.remoteId);
-  writer.writeLong(offsets[24], object.replyToRemoteId);
-  writer.writeString(offsets[25], object.senderId);
-  writer.writeBool(offsets[26], object.viewOnce);
-  writer.writeBool(offsets[27], object.viewedByReceiver);
-  writer.writeBool(offsets[28], object.viewedBySender);
+  writer.writeDateTime(offsets[6], object.deliveredAt);
+  writer.writeDateTime(offsets[7], object.editedAt);
+  writer.writeDateTime(offsets[8], object.expiresAt);
+  writer.writeBool(offsets[9], object.isDelivered);
+  writer.writeBool(offsets[10], object.isLiked);
+  writer.writeBool(offsets[11], object.isPinned);
+  writer.writeBool(offsets[12], object.isRead);
+  writer.writeBool(offsets[13], object.isSending);
+  writer.writeString(offsets[14], object.localMediaPath);
+  writer.writeLong(offsets[15], object.mediaDurationMs);
+  writer.writeDateTime(offsets[16], object.mediaExpiresAt);
+  writer.writeString(offsets[17], object.mediaMime);
+  writer.writeString(offsets[18], object.mediaName);
+  writer.writeString(offsets[19], object.mediaPath);
+  writer.writeLong(offsets[20], object.mediaSizeBytes);
+  writer.writeString(offsets[21], object.messageType);
+  writer.writeString(offsets[22], object.otherUserId);
+  writer.writeString(offsets[23], object.ownerUserId);
+  writer.writeString(offsets[24], object.reactions);
+  writer.writeString(offsets[25], object.receiverId);
+  writer.writeLong(offsets[26], object.remoteId);
+  writer.writeLong(offsets[27], object.replyToRemoteId);
+  writer.writeString(offsets[28], object.senderId);
+  writer.writeBool(offsets[29], object.viewOnce);
+  writer.writeBool(offsets[30], object.viewedByReceiver);
+  writer.writeBool(offsets[31], object.viewedBySender);
 }
 
 LocalMessage _localMessageDeserialize(
@@ -318,30 +336,33 @@ LocalMessage _localMessageDeserialize(
   object.deletedAt = reader.readDateTimeOrNull(offsets[3]);
   object.deletedForReceiver = reader.readBool(offsets[4]);
   object.deletedForSender = reader.readBool(offsets[5]);
-  object.editedAt = reader.readDateTimeOrNull(offsets[6]);
-  object.expiresAt = reader.readDateTimeOrNull(offsets[7]);
+  object.deliveredAt = reader.readDateTimeOrNull(offsets[6]);
+  object.editedAt = reader.readDateTimeOrNull(offsets[7]);
+  object.expiresAt = reader.readDateTimeOrNull(offsets[8]);
   object.id = id;
-  object.isLiked = reader.readBool(offsets[8]);
-  object.isPinned = reader.readBool(offsets[9]);
-  object.isRead = reader.readBool(offsets[10]);
-  object.localMediaPath = reader.readStringOrNull(offsets[11]);
-  object.mediaDurationMs = reader.readLongOrNull(offsets[12]);
-  object.mediaExpiresAt = reader.readDateTimeOrNull(offsets[13]);
-  object.mediaMime = reader.readStringOrNull(offsets[14]);
-  object.mediaName = reader.readStringOrNull(offsets[15]);
-  object.mediaPath = reader.readStringOrNull(offsets[16]);
-  object.mediaSizeBytes = reader.readLongOrNull(offsets[17]);
-  object.messageType = reader.readString(offsets[18]);
-  object.otherUserId = reader.readString(offsets[19]);
-  object.ownerUserId = reader.readString(offsets[20]);
-  object.reactions = reader.readStringOrNull(offsets[21]);
-  object.receiverId = reader.readString(offsets[22]);
-  object.remoteId = reader.readLongOrNull(offsets[23]);
-  object.replyToRemoteId = reader.readLongOrNull(offsets[24]);
-  object.senderId = reader.readString(offsets[25]);
-  object.viewOnce = reader.readBool(offsets[26]);
-  object.viewedByReceiver = reader.readBool(offsets[27]);
-  object.viewedBySender = reader.readBool(offsets[28]);
+  object.isDelivered = reader.readBool(offsets[9]);
+  object.isLiked = reader.readBool(offsets[10]);
+  object.isPinned = reader.readBool(offsets[11]);
+  object.isRead = reader.readBool(offsets[12]);
+  object.isSending = reader.readBool(offsets[13]);
+  object.localMediaPath = reader.readStringOrNull(offsets[14]);
+  object.mediaDurationMs = reader.readLongOrNull(offsets[15]);
+  object.mediaExpiresAt = reader.readDateTimeOrNull(offsets[16]);
+  object.mediaMime = reader.readStringOrNull(offsets[17]);
+  object.mediaName = reader.readStringOrNull(offsets[18]);
+  object.mediaPath = reader.readStringOrNull(offsets[19]);
+  object.mediaSizeBytes = reader.readLongOrNull(offsets[20]);
+  object.messageType = reader.readString(offsets[21]);
+  object.otherUserId = reader.readString(offsets[22]);
+  object.ownerUserId = reader.readString(offsets[23]);
+  object.reactions = reader.readStringOrNull(offsets[24]);
+  object.receiverId = reader.readString(offsets[25]);
+  object.remoteId = reader.readLongOrNull(offsets[26]);
+  object.replyToRemoteId = reader.readLongOrNull(offsets[27]);
+  object.senderId = reader.readString(offsets[28]);
+  object.viewOnce = reader.readBool(offsets[29]);
+  object.viewedByReceiver = reader.readBool(offsets[30]);
+  object.viewedBySender = reader.readBool(offsets[31]);
   return object;
 }
 
@@ -369,46 +390,52 @@ P _localMessageDeserializeProp<P>(
     case 7:
       return (reader.readDateTimeOrNull(offset)) as P;
     case 8:
-      return (reader.readBool(offset)) as P;
+      return (reader.readDateTimeOrNull(offset)) as P;
     case 9:
       return (reader.readBool(offset)) as P;
     case 10:
       return (reader.readBool(offset)) as P;
     case 11:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 12:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 13:
-      return (reader.readDateTimeOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 14:
       return (reader.readStringOrNull(offset)) as P;
     case 15:
-      return (reader.readStringOrNull(offset)) as P;
-    case 16:
-      return (reader.readStringOrNull(offset)) as P;
-    case 17:
       return (reader.readLongOrNull(offset)) as P;
-    case 18:
-      return (reader.readString(offset)) as P;
-    case 19:
-      return (reader.readString(offset)) as P;
-    case 20:
-      return (reader.readString(offset)) as P;
-    case 21:
+    case 16:
+      return (reader.readDateTimeOrNull(offset)) as P;
+    case 17:
       return (reader.readStringOrNull(offset)) as P;
+    case 18:
+      return (reader.readStringOrNull(offset)) as P;
+    case 19:
+      return (reader.readStringOrNull(offset)) as P;
+    case 20:
+      return (reader.readLongOrNull(offset)) as P;
+    case 21:
+      return (reader.readString(offset)) as P;
     case 22:
       return (reader.readString(offset)) as P;
     case 23:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 24:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 25:
       return (reader.readString(offset)) as P;
     case 26:
-      return (reader.readBool(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 27:
-      return (reader.readBool(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 28:
+      return (reader.readString(offset)) as P;
+    case 29:
+      return (reader.readBool(offset)) as P;
+    case 30:
+      return (reader.readBool(offset)) as P;
+    case 31:
       return (reader.readBool(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1215,6 +1242,80 @@ extension LocalMessageQueryFilter
   }
 
   QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'deliveredAt',
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'deliveredAt',
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtEqualTo(DateTime? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'deliveredAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtGreaterThan(
+    DateTime? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'deliveredAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtLessThan(
+    DateTime? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'deliveredAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      deliveredAtBetween(
+    DateTime? lower,
+    DateTime? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'deliveredAt',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
       editedAtIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const FilterCondition.isNull(
@@ -1416,6 +1517,16 @@ extension LocalMessageQueryFilter
   }
 
   QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      isDeliveredEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isDelivered',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
       isLikedEqualTo(bool value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -1440,6 +1551,16 @@ extension LocalMessageQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'isRead',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterFilterCondition>
+      isSendingEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isSending',
         value: value,
       ));
     });
@@ -3380,6 +3501,19 @@ extension LocalMessageQuerySortBy
     });
   }
 
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByDeliveredAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deliveredAt', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy>
+      sortByDeliveredAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deliveredAt', Sort.desc);
+    });
+  }
+
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByEditedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'editedAt', Sort.asc);
@@ -3401,6 +3535,19 @@ extension LocalMessageQuerySortBy
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByExpiresAtDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'expiresAt', Sort.desc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByIsDelivered() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDelivered', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy>
+      sortByIsDeliveredDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDelivered', Sort.desc);
     });
   }
 
@@ -3437,6 +3584,18 @@ extension LocalMessageQuerySortBy
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByIsReadDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isRead', Sort.desc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByIsSending() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSending', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> sortByIsSendingDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSending', Sort.desc);
     });
   }
 
@@ -3753,6 +3912,19 @@ extension LocalMessageQuerySortThenBy
     });
   }
 
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByDeliveredAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deliveredAt', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy>
+      thenByDeliveredAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deliveredAt', Sort.desc);
+    });
+  }
+
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByEditedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'editedAt', Sort.asc);
@@ -3789,6 +3961,19 @@ extension LocalMessageQuerySortThenBy
     });
   }
 
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByIsDelivered() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDelivered', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy>
+      thenByIsDeliveredDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isDelivered', Sort.desc);
+    });
+  }
+
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByIsLiked() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isLiked', Sort.asc);
@@ -3822,6 +4007,18 @@ extension LocalMessageQuerySortThenBy
   QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByIsReadDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isRead', Sort.desc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByIsSending() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSending', Sort.asc);
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QAfterSortBy> thenByIsSendingDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isSending', Sort.desc);
     });
   }
 
@@ -4102,6 +4299,12 @@ extension LocalMessageQueryWhereDistinct
     });
   }
 
+  QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByDeliveredAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'deliveredAt');
+    });
+  }
+
   QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByEditedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'editedAt');
@@ -4111,6 +4314,12 @@ extension LocalMessageQueryWhereDistinct
   QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByExpiresAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'expiresAt');
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByIsDelivered() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isDelivered');
     });
   }
 
@@ -4129,6 +4338,12 @@ extension LocalMessageQueryWhereDistinct
   QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByIsRead() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isRead');
+    });
+  }
+
+  QueryBuilder<LocalMessage, LocalMessage, QDistinct> distinctByIsSending() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isSending');
     });
   }
 
@@ -4304,6 +4519,13 @@ extension LocalMessageQueryProperty
     });
   }
 
+  QueryBuilder<LocalMessage, DateTime?, QQueryOperations>
+      deliveredAtProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'deliveredAt');
+    });
+  }
+
   QueryBuilder<LocalMessage, DateTime?, QQueryOperations> editedAtProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'editedAt');
@@ -4313,6 +4535,12 @@ extension LocalMessageQueryProperty
   QueryBuilder<LocalMessage, DateTime?, QQueryOperations> expiresAtProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'expiresAt');
+    });
+  }
+
+  QueryBuilder<LocalMessage, bool, QQueryOperations> isDeliveredProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isDelivered');
     });
   }
 
@@ -4331,6 +4559,12 @@ extension LocalMessageQueryProperty
   QueryBuilder<LocalMessage, bool, QQueryOperations> isReadProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'isRead');
+    });
+  }
+
+  QueryBuilder<LocalMessage, bool, QQueryOperations> isSendingProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isSending');
     });
   }
 

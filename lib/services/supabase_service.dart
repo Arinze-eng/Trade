@@ -320,7 +320,7 @@ class SupabaseService {
       mediaExpiresAt = DateTime.now().add(mediaAutoDeleteDuration);
     }
 
-    await _client.from('messages').insert({
+    final insertResult = await _client.from('messages').insert({
       'sender_id': senderId,
       'receiver_id': receiverId,
       'content': content,
@@ -340,11 +340,13 @@ class SupabaseService {
       'rich_text_json': richTextJson,
       'is_forwarded': isForwarded,
       'forwarded_from_id': forwardedFromId,
-    });
+      // [UPDATE 2026-06-10] Mark as no longer sending on insert
+      'is_sending': false,
+    }).select('id').maybeSingle();
+
+    final int? newMessageId = insertResult?['id'] as int?;
 
     // [UPDATE #2] Trigger push notification via Supabase Edge Function
-    // The Edge Function reads the receiver's FCM token from fcm_tokens
-    // and sends a Firebase Cloud Message — works even when app is terminated.
     try {
       await _client.functions.invoke('send-push-notification', body: {
         'receiver_id': receiverId,
@@ -353,6 +355,14 @@ class SupabaseService {
         'content': messageType == 'text' ? content : '[${messageType.capitalize()}]',
         'type': 'message',
       });
+
+      // [UPDATE 2026-06-10] Mark as delivered if FCM succeeded
+      if (newMessageId != null) {
+        await _client.from('messages').update({
+          'is_delivered': true,
+          'delivered_at': DateTime.now().toUtc().toIso8601String(),
+        }).eq('id', newMessageId);
+      }
     } catch (_) {
       // Push notification is best-effort; message is already delivered via Realtime
     }
@@ -463,7 +473,7 @@ class SupabaseService {
     final res = await _client
         .from('messages')
         .select(
-          'id,sender_id,receiver_id,content,is_liked,is_read,created_at,message_type,media_path,media_mime,media_duration_ms,reply_to_id,edited_at,deleted_at,deleted_for_sender,deleted_for_receiver,caption,expires_at,view_once,viewed_by_sender,viewed_by_receiver,reactions,is_pinned,media_name,media_size_bytes,media_expires_at,is_rich_text,rich_text_json,is_forwarded,forwarded_from_id,is_starred',
+          'id,sender_id,receiver_id,content,is_liked,is_read,is_delivered,delivered_at,is_sending,created_at,message_type,media_path,media_mime,media_duration_ms,reply_to_id,edited_at,deleted_at,deleted_for_sender,deleted_for_receiver,caption,expires_at,view_once,viewed_by_sender,viewed_by_receiver,reactions,is_pinned,media_name,media_size_bytes,media_expires_at,is_rich_text,rich_text_json,is_forwarded,forwarded_from_id,is_starred',
         )
         .or(
           'and(sender_id.eq.$currentUserId,receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.$currentUserId)',
@@ -769,6 +779,65 @@ class SupabaseService {
         .eq('blocked_id', otherUserId);
   }
 
+  // [UPDATE 2026-06-10] Mark message as sending/delivered
+  Future<void> markMessageDelivered(int messageId) async {
+    try {
+      await _client.rpc('mark_message_delivered', params: {'p_message_id': messageId});
+    } catch (_) {}
+  }
+
+  /// Mark all messages in a conversation as read. Returns count marked.
+  Future<int> markConversationRead(String otherUserId) async {
+    try {
+      final res = await _client.rpc('mark_conversation_read', params: {
+        'p_other_user_id': otherUserId,
+      });
+      return (res as num?)?.toInt() ?? 0;
+    } catch (_) {
+      // Fallback: update directly
+      try {
+        final u = _client.auth.currentUser;
+        if (u == null) return 0;
+        await _client
+            .from('messages')
+            .update({'is_read': true})
+            .eq('receiver_id', u.id)
+            .eq('sender_id', otherUserId)
+            .eq('is_read', false);
+        return 0;
+      } catch (_) {
+        return 0;
+      }
+    }
+  }
+
+  /// Get total unread count for current user
+  Future<int> getUnreadCount() async {
+    try {
+      final res = await _client.rpc('get_unread_count');
+      return (res as num?)?.toInt() ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Cleanup expired call signals (used on app startup)
+  Future<void> cleanupExpiredCallSignals() async {
+    try {
+      await _client.rpc('cleanup_expired_call_signals');
+    } catch (_) {
+      // Fallback: delete old signals directly
+      try {
+        final cutoff = DateTime.now().toUtc().subtract(const Duration(seconds: 30));
+        await _client
+            .from('call_signals')
+            .delete()
+            .lt('created_at', cutoff.toIso8601String());
+      } catch (_) {}
+    }
+  }
+
+  // [UPDATE 2026-06-10] Added is_delivered to sendMessage
   // ---- Call signaling (ephemeral — perfect for serverless) ----
   // [UPDATE #3] Real-time calls via Supabase Realtime + WebRTC
   Future<void> sendCallSignal({
@@ -776,11 +845,13 @@ class SupabaseService {
     required String type,
     required Map<String, dynamic> payload,
   }) async {
+    // [UPDATE 2026-06-10] Set expires_at to 30 seconds to prevent phantom calls
     await _client.from('call_signals').insert({
       'from_id': _client.auth.currentUser?.id,
       'to_id': toId,
       'type': type,
       'payload': payload,
+      'expires_at': DateTime.now().toUtc().add(const Duration(seconds: 30)).toIso8601String(),
     });
 
     // [UPDATE #2] Trigger push notification for incoming call via FCM

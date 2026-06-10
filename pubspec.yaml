@@ -50,7 +50,7 @@ dependencies:
 
   # Background polling (fallback for notifications)
   # Bumped from ^0.5.2 to ^0.9.0+3 to support Flutter v2 embedding (Flutter 3.32+)
-  workmanager: ^0.9.0+3
+  workmanager: ^0.5.2
   connectivity_plus: ^6.0.5
 
   # File attachments

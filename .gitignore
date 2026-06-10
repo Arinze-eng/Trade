@@ -21,3 +21,4 @@ build_output/
 # Firebase — do NOT push Firebase config to GitHub
 # Rules files (firestore.rules, storage.rules) are kept for reference
 # but actual deployment should be done via Firebase CLI locally
+supabase/.temp/

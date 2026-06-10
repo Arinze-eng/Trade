@@ -2,6 +2,8 @@ import 'package:isar/isar.dart';
 
 part 'local_message.g.dart';
 
+/// [UPDATE 2026-06-10] Added isDelivered, deliveredAt, isSending fields
+/// for blue tick delivery tracking
 @collection
 class LocalMessage {
   Id id = Isar.autoIncrement;
@@ -38,7 +40,15 @@ class LocalMessage {
   DateTime? editedAt;
   DateTime? deletedAt;
 
+  // ── [UPDATE 2026-06-10] Blue tick delivery tracking ──
+  // isRead = true  → double blue tick ✓✓ (recipient opened and saw)
+  // isDelivered = true → single tick ✓ (FCM sent + delivered to device)
+  // Both false → no tick / clock icon (still sending)
   bool isRead = false;
+  bool isDelivered = false;
+  DateTime? deliveredAt;
+  bool isSending = false;
+
   bool isLiked = false;
 
   // Reactions stored as JSON string: {"userId": "emoji"}

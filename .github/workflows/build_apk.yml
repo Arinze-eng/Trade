@@ -22,7 +22,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.9'
+          flutter-version: '3.29.3'
           channel: 'stable'
           cache: true
       
@@ -31,14 +31,9 @@ jobs:
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" --sdk_root=$ANDROID_HOME 2>&1 || true
           echo "NDK_DIR=$ANDROID_HOME/ndk/27.0.12077973"
           ls $ANDROID_HOME/ndk/ 2>/dev/null || echo "NDK not found"
+      
       - name: Install dependencies
         run: flutter pub get
-      
-      - name: Extract third-party packages
-        run: |
-          if [ -f third_party/device_apps-2.2.0.tar.gz ]; then
-            cd third_party && tar xzf device_apps-2.2.0.tar.gz && cd ..
-          fi
       
       - name: Build APK (release, split-per-abi, tree-shake-icons)
         run: flutter build apk --release --split-per-abi --tree-shake-icons

@@ -129,6 +129,9 @@ class LocalChatStore {
       msg.deletedAt = m['deleted_at'] == null ? null : DateTime.tryParse(m['deleted_at'].toString())?.toUtc();
 
       msg.isRead = m['is_read'] == true;
+      msg.isDelivered = m['is_delivered'] == true;
+      msg.deliveredAt = m['delivered_at'] == null ? null : DateTime.tryParse(m['delivered_at'].toString())?.toUtc();
+      msg.isSending = m['is_sending'] == true;
       msg.isLiked = m['is_liked'] == true;
 
       // Reactions - stored as JSON string
@@ -198,6 +201,81 @@ class LocalChatStore {
 
       await upsertFromRemote(ownerUserId: ownerUserId, otherUserId: otherUserId, m: m);
     }
+  }
+
+  /// [UPDATE 2026-06-10] Hydrate ALL conversations from Supabase into Isar
+  /// This is the key offline-first feature: on startup, load everything!
+  Future<void> hydrateAllConversations({required String ownerUserId}) async {
+    try {
+      // Get all unique conversation partners
+      final threads = await _supabase.getChatThreads();
+      for (final thread in threads) {
+        final otherUserId = (thread['other_user_id'] ?? '').toString();
+        if (otherUserId.isEmpty) continue;
+        await hydrateConversation(ownerUserId: ownerUserId, otherUserId: otherUserId);
+      }
+    } catch (_) {}
+  }
+
+  /// [UPDATE 2026-06-10] Get chat threads from local DB (offline-first)
+  /// Returns list of {otherUserId, otherDisplayName, lastMessage, lastMessageAt, unreadCount}
+  Future<List<Map<String, dynamic>>> getLocalChatThreads({required String ownerUserId}) async {
+    final isar = await _db();
+
+    // Get all unique otherUserIds
+    final others = await isar.localMessages
+        .filter()
+        .ownerUserIdEqualTo(ownerUserId)
+        .otherUserIdProperty()
+        .findAll();
+
+    final uniqueOthers = others.toSet().where((id) => id.isNotEmpty).toList();
+    final threads = <Map<String, dynamic>>[];
+
+    for (final otherId in uniqueOthers) {
+      // Get last message
+      final lastMsg = await isar.localMessages
+          .filter()
+          .ownerUserIdEqualTo(ownerUserId)
+          .otherUserIdEqualTo(otherId)
+          .sortByCreatedAtDesc()
+          .findFirst();
+
+      if (lastMsg == null) continue;
+
+      // Count unread
+      final unreadCount = await isar.localMessages
+          .filter()
+          .ownerUserIdEqualTo(ownerUserId)
+          .otherUserIdEqualTo(otherId)
+          .isReadEqualTo(false)
+          .senderIdEqualTo(otherId)
+          .count();
+
+      // Get display name from Supabase profile (cached)
+      final profile = await _supabase.getProfile(otherId);
+
+      threads.add({
+        'other_user_id': otherId,
+        'other_username': profile?['username'] ?? '',
+        'other_display_name': profile?['display_name'] ?? profile?['username'] ?? otherId.substring(0, 8),
+        'last_message': lastMsg.content,
+        'last_message_at': lastMsg.createdAt.toIso8601String(),
+        'unread_count': unreadCount,
+        'last_message_type': lastMsg.messageType,
+      });
+    }
+
+    threads.sort((a, b) {
+      final aTime = DateTime.tryParse(a['last_message_at'] ?? '');
+      final bTime = DateTime.tryParse(b['last_message_at'] ?? '');
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+
+    return threads;
   }
 
   /// Get unread count for a conversation
