@@ -213,13 +213,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   /// Track whether user is near the bottom of the chat.
   void _onScrollChanged() {
     if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
+    // [UPDATE 2026-06-11-TELEGRAM] The message list is now REVERSED
+    // (reverse: true), so the newest message lives at scroll offset 0.0 which
+    // is the BOTTOM of the screen. "Near bottom" is therefore a FIXED anchor:
+    // pixels < 120. This is the Telegram trick — the bottom never moves when
+    // the keyboard opens, an image loads, or new messages arrive above, so the
+    // view never jumps / flickers / rebounds.
     final currentScroll = _scrollController.position.pixels;
-    // [UPDATE 2026-06-11-NOBOUNCE] Treat "within 120px of the bottom" as being
-    // at the bottom. This is what decides whether incoming messages auto-scroll.
-    // If the user has scrolled UP to read history, this becomes false and we
-    // will NOT yank them back down (WhatsApp behaviour).
-    _isNearBottom = (maxScroll - currentScroll) < 120;
+    _isNearBottom = currentScroll < 120;
   }
 
   bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
@@ -1185,31 +1186,35 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     setState(() {});
   }
 
-  /// ── SMOOTH SCROLL FIX: Smart scroll-to-bottom ──
-  /// Auto-scroll to the newest message — WhatsApp-style.
+  /// ── TELEGRAM-STYLE STABLE SCROLL ──
+  /// Because the list is REVERSED (reverse: true), the newest message sits at
+  /// scroll offset 0.0 (the bottom). This changes everything:
   ///
-  /// Rules (this is the core of the "no rebounce / don't jump while I read" fix):
-  ///  • On the FIRST load we JUMP (no animation) straight to the bottom so the
-  ///    chat opens already showing the latest message — no visible scroll/bounce.
-  ///  • After that we ONLY animate to the bottom when the user is already near
-  ///    the bottom (_isNearBottom). If they've scrolled up to read history we
-  ///    leave their position completely untouched.
+  ///  • On FIRST load there is nothing to do — a reversed list opens already
+  ///    pinned to offset 0 (the latest message), with NO jump and NO bounce.
+  ///  • When new messages arrive they are INSERTED at the bottom (index 0).
+  ///    A reversed list grows upward, so the user's current viewport is never
+  ///    disturbed — the chat does NOT move, flicker, or rebound on its own.
+  ///  • We only glide back down to the newest message when the user is already
+  ///    near the bottom (_isNearBottom). If they've scrolled up to read history
+  ///    we leave them exactly where they are.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
 
-      // First load → jump instantly to the bottom (no animation, no bounce).
+      // First load: a reversed list is already at the bottom (offset 0). Just
+      // record that we've handled the initial state — no scroll, no animation.
       if (!_didInitialScroll) {
         _didInitialScroll = true;
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
         _isNearBottom = true;
         return;
       }
 
       // Subsequent new messages → only follow if the user is at the bottom.
+      // In a reversed list "bottom" == offset 0.0.
       if (_isNearBottom) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0,
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
@@ -1218,13 +1223,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   }
 
   /// Force-scroll to bottom (used ONLY when the user sends a message themselves
-  /// — sending always means "take me to my new message").
+  /// — sending always means "take me to my new message"). Reversed list → 0.0.
   void _forceScrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _isNearBottom = true;
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0,
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
@@ -1867,6 +1872,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                   _scrollToBottom();
                 }
 
+                // [UPDATE 2026-06-11-TELEGRAM] Render NEWEST-first. The ListView
+                // below uses reverse:true, so index 0 must be the latest message
+                // (it is pinned to the bottom). We reverse a shallow copy here;
+                // the original `messages` (oldest→newest) is left untouched for
+                // all the dedupe / read-receipt logic above.
+                final reversed = messages.reversed.toList();
+
                 return Column(
                   children: [
                     if (pinned.isNotEmpty)
@@ -1893,31 +1905,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                       child: ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.all(16),
-                  // [UPDATE 2026-06-11-NOBOUNCE] ClampingScrollPhysics removes
-                  // the iOS-style rubber-band "rebounce" the user complained
-                  // about — the list now stops dead wherever you scroll to and
-                  // never springs back. It also never auto-yanks to the bottom
-                  // unless you are already there (see _scrollToBottom).
+                  // [UPDATE 2026-06-11-TELEGRAM] reverse:true is the heart of the
+                  // stability fix. Offset 0.0 == the bottom == newest message, a
+                  // FIXED anchor. New messages, keyboard open, image loads — none
+                  // of these move the user's viewport, so the chat never jumps,
+                  // flickers or rebounds. The user only moves when THEY scroll.
+                  reverse: true,
+                  // ClampingScrollPhysics removes the iOS rubber-band rebound; the
+                  // list stops dead wherever the user releases it.
                   physics: const ClampingScrollPhysics(
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
                   // ── SMOOTH SCROLL: cache extent for pre-building off-screen items ──
                   cacheExtent: 500,
-                  itemCount: messages.length,
+                  itemCount: reversed.length,
                   // [UPDATE 2026-06-08] Optimized itemBuilder with RepaintBoundary
                   // for zero-lag scrolling — each message bubble renders independently
                   itemBuilder: (context, index) {
-                    final message = messages[index];
+                    final message = reversed[index];
                     final isMe = message['sender_id'] == widget.currentUser['id'];
 
                     final createdAt = DateTime.tryParse((message['created_at'] ?? '').toString())?.toLocal();
-                    DateTime? prevCreatedAt;
-                    if (index > 0) {
-                      prevCreatedAt = DateTime.tryParse((messages[index - 1]['created_at'] ?? '').toString())?.toLocal();
-                    }
 
+                    // [UPDATE 2026-06-11-TELEGRAM] Reversed-list date headers.
+                    // The list is newest→oldest, so the next OLDER message lives
+                    // at index+1. A day header must sit ABOVE the first (oldest)
+                    // message of each day. In a reversed list, "above" means we
+                    // place the header AFTER the bubble in the Column, and we
+                    // show it when the next-older message is a different day (or
+                    // this is the very first/oldest message in the list).
+                    DateTime? olderCreatedAt;
+                    if (index < reversed.length - 1) {
+                      olderCreatedAt = DateTime.tryParse((reversed[index + 1]['created_at'] ?? '').toString())?.toLocal();
+                    }
                     final showDateHeader = createdAt != null &&
-                        (index == 0 || prevCreatedAt == null || !_isSameDay(createdAt, prevCreatedAt));
+                        (olderCreatedAt == null || !_isSameDay(createdAt, olderCreatedAt));
 
                     // [UPDATE 2026-06-11-SMOOTH] Stable per-message key so Flutter
                     // REUSES existing bubble elements instead of rebuilding the
@@ -1935,6 +1957,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                     final dayKey = _dayKey(createdAt!);
                     final headerKey = _dateHeaderKeys.putIfAbsent(dayKey, () => GlobalKey());
 
+                    // Header AFTER bubble → renders visually ABOVE it in a
+                    // reversed list, matching WhatsApp/Telegram day separators.
                     return RepaintBoundary(
                       key: ValueKey('msghdr_${message['id']}'),
                       child: Column(
