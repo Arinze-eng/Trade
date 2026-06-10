@@ -1634,14 +1634,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     final lightMode = !isDark;
     // [UPDATE 2026-06-10-WA] WhatsApp chat-room background — beige paper in light mode,
     // dark in dark mode. Solid color, no overlays/blur.
-    final bgColor = isDark ? Theme.of(context).scaffoldBackgroundColor : const Color(0xFFEFEAE2);
+    final bgColor = isDark ? Theme.of(context).scaffoldBackgroundColor : const Color(0xFFE9E2D8);
     final textColor = isDark ? Colors.white : Colors.black87;
 
     return Scaffold(
       backgroundColor: bgColor,
+      // [UPDATE 2026-06-11-TELEGRAM] Keep keyboard handling stable. The reversed
+      // list is pinned to offset 0 (bottom), so when the keyboard opens the body
+      // shrinks but the newest message stays glued to the bottom — exactly like
+      // Telegram. The viewport never jumps or rebounds.
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         // [UPDATE 2026-06-10-WA] WhatsApp light header — solid white, dark green accent
-        backgroundColor: isDark ? Colors.transparent : Colors.white,
+        backgroundColor: isDark ? Colors.transparent : const Color(0xFFF2F3F5),
         surfaceTintColor: Colors.transparent,
         elevation: isDark ? 0 : 1,
         shadowColor: isDark ? Colors.transparent : const Color(0x14000000),
@@ -2851,14 +2856,14 @@ final editedColor = isMe
   Widget _buildMessageInput() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // [UPDATE 2026-06-10-WA] WhatsApp-exact input area
-    final inputBg = isDark ? const Color(0xFF1F2C33) : const Color(0xFFEFEAE2);
+    final inputBg = isDark ? const Color(0xFF1F2C33) : const Color(0xFFE9E2D8);
     final inputBorder = isDark
         ? Colors.white.withOpacity(0.05)
         : Colors.transparent;
     final iconColorLocal = isDark ? Colors.white70 : const Color(0xFF54656F);
     final textFieldBg = isDark
         ? Colors.white.withOpacity(0.05)
-        : Colors.white;
+        : const Color(0xFFF7F8FA);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),

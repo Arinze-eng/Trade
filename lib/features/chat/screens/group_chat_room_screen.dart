@@ -53,6 +53,7 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
   // ── SMOOTH SCROLL FIX ──
   int _previousMessageCount = 0;
   bool _isNearBottom = true;
+  bool _didInitialScroll = false;
   bool _isRecording = false;
 
   Map<String, dynamic>? _replyToMessage;
@@ -307,13 +308,26 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
     return emojiRegex.hasMatch(text) && text.replaceAll(RegExp(r'\s'), '').isNotEmpty;
   }
 
+  /// ── TELEGRAM-STYLE STABLE SCROLL ──
+  /// The group message list is REVERSED (reverse: true), so the newest message
+  /// sits at scroll offset 0.0 (the bottom) — a FIXED anchor. New messages,
+  /// keyboard open, image loads: none of these move the user's viewport, so the
+  /// chat never jumps, flickers or rebounds. Only the user moves it.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients && _isNearBottom) {
+      if (!_scrollController.hasClients) return;
+      // First load: a reversed list opens already pinned at the bottom (offset 0).
+      if (!_didInitialScroll) {
+        _didInitialScroll = true;
+        _isNearBottom = true;
+        return;
+      }
+      // Subsequent new messages → only glide down if user is already at bottom.
+      if (_isNearBottom) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
         );
       }
     });
@@ -322,10 +336,11 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
   void _forceScrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
+        _isNearBottom = true;
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
         );
       }
     });
@@ -333,9 +348,9 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
 
   void _onScrollChanged() {
     if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
+    // Reversed list → "bottom" is a fixed anchor at offset 0.0.
     final currentScroll = _scrollController.position.pixels;
-    _isNearBottom = (maxScroll - currentScroll) < 100;
+    _isNearBottom = currentScroll < 120;
   }
 
   Future<void> _pickAndSendImage() async {
@@ -905,6 +920,10 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F2027),
+      // [UPDATE 2026-06-11-TELEGRAM] Reversed list keeps the newest message
+      // pinned to the bottom; the keyboard shrinks the body without shifting
+      // or rebounding the chat — exactly like Telegram.
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -985,6 +1004,12 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
                   _scrollToBottom();
                 }
 
+                // [UPDATE 2026-06-11-TELEGRAM] Render NEWEST-first. The ListView
+                // below uses reverse:true, so index 0 must be the latest message
+                // (pinned to the bottom). The original `messages` (oldest→newest)
+                // is left untouched for all other logic.
+                final reversed = messages.reversed.toList();
+
                 return Column(
                   children: [
                     if (pinned.isNotEmpty) _buildPinnedMessagesHeader(pinned),
@@ -992,13 +1017,20 @@ class _GroupChatRoomScreenState extends State<GroupChatRoomScreen> with TickerPr
                       child: ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.all(16),
-                  physics: const BouncingScrollPhysics(
+                  // [UPDATE 2026-06-11-TELEGRAM] reverse:true keeps the bottom a
+                  // FIXED anchor (offset 0.0). New messages, keyboard open, image
+                  // loads — none move the viewport, so the chat never jumps,
+                  // flickers or rebounds. The user only moves when THEY scroll.
+                  reverse: true,
+                  // ClampingScrollPhysics removes the rubber-band rebound; the
+                  // list stops dead wherever the user releases it.
+                  physics: const ClampingScrollPhysics(
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
                   cacheExtent: 500,
-                  itemCount: messages.length,
+                  itemCount: reversed.length,
                   itemBuilder: (context, index) {
-                    final message = messages[index];
+                    final message = reversed[index];
                     final isMe = message['sender_id'] == widget.currentUser['id'];
                     return _buildGroupMessageBubble(message, isMe, messages);
                   },

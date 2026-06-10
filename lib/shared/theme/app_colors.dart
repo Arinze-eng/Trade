@@ -11,12 +11,16 @@ class AppColors {
   static const appBarDark = Color(0xFF1F2C33);
 
   // ───────────────────────────── Light mode (WhatsApp 2025/26) ─────────
-  // Chat list / scaffold background — WhatsApp uses pure white for the list
-  static const bgLight = Color(0xFFFFFFFF);
-  // Chat *room* background — WhatsApp's beige doodle paper
-  static const chatRoomBgLight = Color(0xFFEFEAE2);
-  static const surfaceLight = Color(0xFFFFFFFF);
-  static const appBarLight = Color(0xFFFFFFFF);
+  // [UPDATE 2026-06-11-SOFT-LIGHT] Reduced light-mode contrast for eye comfort.
+  // Pure #FFFFFF on large surfaces strains the eyes; we use a soft, warm
+  // off-white instead (the same trick Telegram/WhatsApp use — they are NOT
+  // pure white). Text stays dark so readability is unchanged.
+  // Chat list / scaffold background — soft off-white instead of pure white
+  static const bgLight = Color(0xFFF2F3F5);
+  // Chat *room* background — WhatsApp's beige doodle paper (already soft)
+  static const chatRoomBgLight = Color(0xFFE9E2D8);
+  static const surfaceLight = Color(0xFFF7F8FA);
+  static const appBarLight = Color(0xFFF2F3F5);
 
   // ───────────────────────────── Accents (shared) ──────────────────────
   static const whatsappGreen = Color(0xFF25D366);
@@ -31,7 +35,7 @@ class AppColors {
 
   // Incoming
   static const incomingBubbleDark = Color(0xFF1F2C33);
-  static const incomingBubbleLight = Color(0xFFFFFFFF); // Pure white
+  static const incomingBubbleLight = Color(0xFFFCFCFB); // soft white (not pure)
 
   // ───────────────────────────── Text colors ───────────────────────────
   // Light mode message text — DARK so it's always readable on green/white
@@ -40,18 +44,18 @@ class AppColors {
   static const textMutedDark = Color(0xFF8696A0);
   static const textMutedLight = Color(0xFF667781);
 
-  // Light mode UI colors (WhatsApp current)
-  static const lightScaffoldBg = Color(0xFFFFFFFF);
-  static const lightChatRoomBg = Color(0xFFEFEAE2);
-  static const lightSurface = Color(0xFFFFFFFF);
+  // Light mode UI colors (WhatsApp current) — softened for eye comfort
+  static const lightScaffoldBg = Color(0xFFF2F3F5);
+  static const lightChatRoomBg = Color(0xFFE9E2D8);
+  static const lightSurface = Color(0xFFF7F8FA);
   static const lightAppBarTitle = Color(0xFF008069); // WA dark green title
-  static const lightSearchBg = Color(0xFFF0F2F5);
-  static const lightDivider = Color(0xFFE9EDEF);
+  static const lightSearchBg = Color(0xFFE8EBED);
+  static const lightDivider = Color(0xFFDDE2E5);
   static const lightTabSelected = Color(0xFF008069);
   static const lightTabNormal = Color(0xFF667781);
-  static const lightReplyBg = Color(0xFFF0F2F5);
-  static const lightInputBg = Color(0xFFFFFFFF);
-  static const lightBubbleShadow = Color(0x14000000); // 8% black for subtle shadow
+  static const lightReplyBg = Color(0xFFE8EBED);
+  static const lightInputBg = Color(0xFFF7F8FA);
+  static const lightBubbleShadow = Color(0x0F000000); // 6% black — subtler shadow
 
   // Dark mode UI colors
   static const darkScaffoldBg = Color(0xFF0B141A);
