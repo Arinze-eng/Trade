@@ -1758,8 +1758,8 @@ class _ChatListScreenState extends State<ChatListScreen>
 
           const Divider(color: Colors.white12, height: 1),
 
-          // [UPDATE 2026-06-08-P2] Admin shown as dot (•) instead of full name
-          _drawerItem(Icons.admin_panel_settings_rounded, '• Admin', () {
+          // [UPDATE 2026-06-10] Renamed from 'Admin' to 'dot' per user request
+          _drawerItem(Icons.admin_panel_settings_rounded, 'dot', () {
             Navigator.pop(context);
             Navigator.push(
               context,

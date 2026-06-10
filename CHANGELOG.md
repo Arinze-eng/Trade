@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [UPDATE 2026-06-10-P2] Notification Finalization & Drawer Rename
+
+### Notifications — Final Setup
+- Set `FIREBASE_PRIVATE_KEY` secret on Supabase Edge Function (send-push-notification)
+- Verified Edge Function is ACTIVE and reachable
+- Confirmed `fcm_tokens` table exists with proper RLS policies
+- Edge function returns `sent:0` with reason `no_tokens` when no FCM tokens registered (expected — tokens register on user login)
+
+### UI Changes
+- Renamed hamburger drawer item from `• Admin` to `dot` (chat_list_screen.dart:1762)
+
 ## [UPDATE 2026-06-10] Performance Optimization & Notification Setup
 
 ### Performance Optimizations
