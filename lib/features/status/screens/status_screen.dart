@@ -518,6 +518,16 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
   }
 
   void _viewStatus(List<Map<String, dynamic>> statuses, String userId) {
+    // [UPDATE 2026-06-11-STATUS] Optimistically mark these statuses as viewed
+    // locally so the ring turns grey immediately (no waiting for a reload).
+    final myId = widget.currentUser['id'] as String;
+    if (userId != myId) {
+      setState(() {
+        for (final s in statuses) {
+          s['viewed_by_me'] = true;
+        }
+      });
+    }
     Navigator.push(
       context,
       MaterialPageRoute(

@@ -1211,6 +1211,30 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     final selfId = widget.currentUser['id'] as String;
     final peerId = widget.otherUser['id'] as String;
 
+    // [UPDATE 2026-06-11-CALL] Only ring if the peer is actually online.
+    // Show a quick "checking…" then bail with a friendly message if offline,
+    // instead of ringing into the void.
+    final messenger = ScaffoldMessenger.of(context);
+    bool online = true;
+    try {
+      online = await _supabaseService.isUserOnline(peerId);
+    } catch (_) {
+      online = true; // fail-open
+    }
+    if (!mounted) return;
+    if (!online) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${widget.otherUser['display_name'] ?? widget.otherUser['username'] ?? 'User'} is offline right now. Try again when they\'re online.',
+          ),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     await _supabaseService.sendCallSignal(
       toId: peerId,
       type: 'call_offer',
@@ -1866,11 +1890,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                     final showDateHeader = createdAt != null &&
                         (index == 0 || prevCreatedAt == null || !_isSameDay(createdAt, prevCreatedAt));
 
+                    // [UPDATE 2026-06-11-SMOOTH] Stable per-message key so Flutter
+                    // REUSES existing bubble elements instead of rebuilding the
+                    // whole list on every stream emit — kills the flicker/bounce.
+                    final msgKey = ValueKey('msg_${message['id']}');
+
                     Widget bubble = _buildMessageBubble(message, isMe, messages);
 
                     // ── SMOOTH SCROLL: Wrap each bubble in RepaintBoundary so
                     // only changed items repaint, not the entire list ──
-                    bubble = RepaintBoundary(child: bubble);
+                    bubble = RepaintBoundary(key: msgKey, child: bubble);
 
                     if (!showDateHeader) return bubble;
 
@@ -1878,6 +1907,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                     final headerKey = _dateHeaderKeys.putIfAbsent(dayKey, () => GlobalKey());
 
                     return RepaintBoundary(
+                      key: ValueKey('msghdr_${message['id']}'),
                       child: Column(
                         children: [
                           _buildDateHeader(createdAt, key: headerKey),

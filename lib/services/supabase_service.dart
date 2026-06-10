@@ -200,6 +200,27 @@ class SupabaseService {
     await _client.rpc('touch_last_seen');
   }
 
+  /// [UPDATE 2026-06-11-CALL] Returns true if the user appears online —
+  /// i.e. their `last_seen` was updated within the last [window]. Used by the
+  /// caller to decide whether to even place a call (we don't ring users who
+  /// are offline, matching WhatsApp's behaviour of failing fast).
+  Future<bool> isUserOnline(String userId, {Duration window = const Duration(seconds: 60)}) async {
+    try {
+      final row = await _client
+          .from('profiles')
+          .select('last_seen')
+          .eq('id', userId)
+          .maybeSingle();
+      if (row == null) return false;
+      final ls = DateTime.tryParse((row['last_seen'] ?? '').toString());
+      if (ls == null) return false;
+      return DateTime.now().toUtc().difference(ls.toUtc()) <= window;
+    } catch (_) {
+      // If we can't determine presence, don't block the call.
+      return true;
+    }
+  }
+
   Stream<Map<String, dynamic>> streamProfile(String userId) {
     return _client
         .from('profiles')
@@ -1087,6 +1108,28 @@ class SupabaseService {
       return allStatus;
     }
 
+    // [UPDATE 2026-06-11-STATUS] Mark which statuses the current user has
+    // already viewed so the UI ring turns grey and we STOP re-prompting them
+    // to "view status". Without this join `viewed_by_me` was always null and
+    // every status looked unviewed forever.
+    Set<String> viewedIds = {};
+    try {
+      final viewsRes = await _client
+          .from('status_views')
+          .select('status_id')
+          .eq('viewer_id', currentUserId);
+      for (final row in (viewsRes as List)) {
+        viewedIds.add((row['status_id'] ?? '').toString());
+      }
+    } catch (_) {}
+
+    void applyViewed(Map<String, dynamic> s) {
+      final id = (s['id'] ?? '').toString();
+      final authorId = (s['user_id'] ?? '').toString();
+      // My own statuses are always "viewed" by me (never prompt myself).
+      s['viewed_by_me'] = authorId == currentUserId || viewedIds.contains(id);
+    }
+
     try {
       final privacyRes = await _client.from('status_privacy').select('user_id, excluded_user_id');
       final allowedRes = await _client.from('status_privacy_allowed').select('user_id, allowed_user_id');
@@ -1113,7 +1156,7 @@ class SupabaseService {
         modes[id] = mode;
       }
 
-      return allStatus.where((status) {
+      final visible = allStatus.where((status) {
         final authorId = (status['user_id'] ?? '').toString();
         if (authorId == currentUserId) return true;
 
@@ -1125,7 +1168,15 @@ class SupabaseService {
         final excluded = exclusions[authorId]?.contains(currentUserId) ?? false;
         return !excluded;
       }).toList();
+
+      for (final s in visible) {
+        applyViewed(s);
+      }
+      return visible;
     } catch (_) {
+      for (final s in allStatus) {
+        applyViewed(s);
+      }
       return allStatus;
     }
   }
@@ -1171,12 +1222,25 @@ class SupabaseService {
   }
 
   Future<void> markStatusViewed({required String statusId, required String viewerId}) async {
+    // [UPDATE 2026-06-11-STATUS] Use upsert so re-viewing the same status is a
+    // no-op instead of throwing a duplicate-key error (which previously meant
+    // the view was silently lost on retries). onConflict matches the
+    // (status_id, viewer_id) unique constraint.
     try {
-      await _client.from('status_views').insert({
+      await _client.from('status_views').upsert({
         'status_id': statusId,
         'viewer_id': viewerId,
-      });
-    } catch (_) {}
+        'viewed_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'status_id,viewer_id');
+    } catch (_) {
+      // Fallback to plain insert if the unique constraint/onConflict isn't set.
+      try {
+        await _client.from('status_views').insert({
+          'status_id': statusId,
+          'viewer_id': viewerId,
+        });
+      } catch (_) {}
+    }
   }
 
   Future<List<Map<String, dynamic>>> getStatusViews(String statusId) async {

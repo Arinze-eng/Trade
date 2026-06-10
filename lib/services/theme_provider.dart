@@ -42,6 +42,10 @@ class ThemeProvider extends ChangeNotifier {
   static ThemeData get lightTheme => ThemeData(
     brightness: Brightness.light,
     useMaterial3: true,
+    // [UPDATE 2026-06-11-NAIRA] Guarantee the ₦ (U+20A6) glyph resolves
+    // app-wide. Poppins lacks it, so without a fallback it renders as a tofu
+    // box. Roboto/Noto (bundled on Android/iOS) contain it.
+    fontFamilyFallback: const ['Roboto', 'NotoSans', 'sans-serif'],
     colorScheme: ColorScheme.fromSeed(
       seedColor: AppColors.lightTabSelected,
       brightness: Brightness.light,
@@ -104,6 +108,8 @@ class ThemeProvider extends ChangeNotifier {
   static ThemeData get darkTheme => ThemeData(
     brightness: Brightness.dark,
     useMaterial3: true,
+    // [UPDATE 2026-06-11-NAIRA] Same ₦ glyph fallback for dark mode.
+    fontFamilyFallback: const ['Roboto', 'NotoSans', 'sans-serif'],
     colorScheme: ColorScheme.fromSeed(
       seedColor: AppColors.whatsappTeal,
       brightness: Brightness.dark,

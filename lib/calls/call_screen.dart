@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -58,6 +59,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   final List<RTCIceCandidate> _pendingCandidates = [];
   bool _remoteDescriptionSet = false;
+
+  // [UPDATE 2026-06-11-RING] Ringtone / ringback playback.
+  // Caller hears a ringback tone while waiting; receiver hears a ringtone.
+  final AudioPlayer _ringPlayer = AudioPlayer();
+  bool _ringStarted = false;
 
   // Phantom call prevention: track ringing start time
   DateTime? _ringingStartedAt;
@@ -174,6 +180,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   /// Phantom call fix: auto-cancel ringing after 20 seconds
   void _startRingingTimeout() {
     _ringingStartedAt ??= DateTime.now();
+    _startRingtone();
     _ringingTimeoutTimer?.cancel();
     _ringingTimeoutTimer = Timer(_ringingTimeout, () {
       if (!_connected && mounted) {
@@ -182,6 +189,31 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     });
   }
+
+  /// [UPDATE 2026-06-11-RING] Play the looping ringback (caller) / ringtone
+  /// (receiver) while the call is in the ringing state. Stopped the moment the
+  /// call connects, is hung up, or times out.
+  Future<void> _startRingtone() async {
+    if (_ringStarted || _connected) return;
+    _ringStarted = true;
+    try {
+      await _ringPlayer.setReleaseMode(ReleaseMode.loop);
+      await _ringPlayer.setVolume(0.8);
+      final asset = widget.isCaller ? 'audio/ringback.wav' : 'audio/ringtone.wav';
+      await _ringPlayer.play(AssetSource(asset));
+    } catch (e) {
+      debugPrint('CallScreen: ringtone play failed: $e');
+    }
+  }
+
+  Future<void> _stopRingtone() async {
+    if (!_ringStarted) return;
+    _ringStarted = false;
+    try {
+      await _ringPlayer.stop();
+    } catch (_) {}
+  }
+
 
   Future<void> _configureAudioSession() async {
     try {
@@ -203,6 +235,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void _onCallConnected() {
     if (_connected) return;
     setState(() => _connected = true);
+
+    // [UPDATE 2026-06-11-RING] Stop ringing the moment the call connects.
+    _stopRingtone();
 
     // Cancel ringing timeout since call connected
     _ringingTimeoutTimer?.cancel();
@@ -463,6 +498,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   }
 
   void _logAndPop() async {
+    _stopRingtone();
     if (_didLogCall) {
       _ringingTimeoutTimer?.cancel();
       _callDurationTimer?.cancel();
@@ -559,6 +595,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _ringingTimeoutTimer?.cancel();
     _disconnectGraceTimer?.cancel();
     _callDurationTimer?.cancel();
+    _ringPlayer.dispose();
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {

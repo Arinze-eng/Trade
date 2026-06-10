@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../models/user_tier.dart';
 import '../../../services/cdn_chat_business_service.dart';
 import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/money_text.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../services/supabase_service.dart';
 
@@ -182,7 +183,7 @@ class _WalletScreenState extends State<WalletScreen> {
                           children: [
                             Text(
                               '₦',
-                              style: GoogleFonts.poppins(
+                              style: Money.style(
                                 color: Colors.white,
                                 fontSize: 28,
                                 fontWeight: FontWeight.bold,
@@ -809,6 +810,12 @@ class _WalletScreenState extends State<WalletScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // [UPDATE 2026-06-11-THEME] Make the Wallet follow the app theme so it is
+    // no longer permanently dark while the rest of the app is light. In light
+    // mode we use WhatsApp's flat white/grey surfaces; dark mode keeps the
+    // original deep gradient.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldText = isDark ? Colors.white : const Color(0xFF111B21);
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -816,18 +823,25 @@ class _WalletScreenState extends State<WalletScreen> {
         elevation: 0,
         title: Text(
           'Wallet',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.poppins(
+            color: scaffoldText,
+            fontWeight: FontWeight.bold),
         ),
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                const Color(0xFF25D366).withOpacity(0.22),
-                const Color(0xFF6366F1).withOpacity(0.16),
-                Colors.transparent,
-              ],
+              colors: isDark
+                  ? [
+                      const Color(0xFF25D366).withOpacity(0.22),
+                      const Color(0xFF6366F1).withOpacity(0.16),
+                      Colors.transparent,
+                    ]
+                  : [
+                      const Color(0xFF25D366).withOpacity(0.10),
+                      Colors.transparent,
+                    ],
             ),
           ),
         ),
@@ -848,11 +862,13 @@ class _WalletScreenState extends State<WalletScreen> {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF06080C), Color(0xFF0B141A), Color(0xFF070B1E)],
+            colors: isDark
+                ? const [Color(0xFF06080C), Color(0xFF0B141A), Color(0xFF070B1E)]
+                : const [Color(0xFFF7F8FA), Color(0xFFFFFFFF)],
           ),
         ),
         child:
@@ -882,15 +898,27 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Widget _buildBalanceCard() {
-    return GlassContainer(
-      blur: 18,
-      opacity: 0.08,
-      borderRadius: 20,
+    // [UPDATE 2026-06-11-THEME] The balance card keeps a fixed dark green/indigo
+    // gradient in BOTH themes (like fintech wallets / WhatsApp Pay) so the white
+    // balance text is always perfectly readable — instead of disappearing on a
+    // white card in light mode.
+    return Container(
       padding: const EdgeInsets.all(24),
-      gradientColors: [
-        const Color(0xFF25D366).withOpacity(0.12),
-        const Color(0xFF6366F1).withOpacity(0.06),
-      ],
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0E5C3F), Color(0xFF128C5E), Color(0xFF1F3A5F)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF128C5E).withOpacity(0.25),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
       child: Column(
         children: [
           Row(
@@ -898,7 +926,7 @@ class _WalletScreenState extends State<WalletScreen> {
             children: [
               Text(
                 'Total Balance',
-                style: GoogleFonts.poppins(color: Colors.white60, fontSize: 14),
+                style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -931,7 +959,7 @@ class _WalletScreenState extends State<WalletScreen> {
           const SizedBox(height: 8),
           Text(
             '₦${_balance.toStringAsFixed(2)}',
-            style: GoogleFonts.poppins(
+            style: Money.style(
               color: Colors.white,
               fontSize: 38,
               fontWeight: FontWeight.bold,
@@ -940,7 +968,7 @@ class _WalletScreenState extends State<WalletScreen> {
           const SizedBox(height: 4),
           Text(
             'Available for cash out',
-            style: GoogleFonts.poppins(color: Colors.white38, fontSize: 12),
+            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12),
           ),
         ],
       ),
@@ -986,6 +1014,11 @@ class _WalletScreenState extends State<WalletScreen> {
     IconData icon,
     Color color,
   ) {
+    // [UPDATE 2026-06-11-THEME] Theme-aware text so values are readable on the
+    // flat white card in light mode (white text was invisible before).
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final valueColor = isDark ? Colors.white : const Color(0xFF111B21);
+    final labelColor = isDark ? Colors.white38 : const Color(0xFF667781);
     return GlassContainer(
       blur: 12,
       opacity: 0.06,
@@ -997,8 +1030,8 @@ class _WalletScreenState extends State<WalletScreen> {
           const SizedBox(height: 6),
           Text(
             value,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
+            style: Money.style(
+              color: valueColor,
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
@@ -1006,7 +1039,7 @@ class _WalletScreenState extends State<WalletScreen> {
           const SizedBox(height: 2),
           Text(
             label,
-            style: GoogleFonts.poppins(color: Colors.white38, fontSize: 9),
+            style: GoogleFonts.poppins(color: labelColor, fontSize: 9),
             textAlign: TextAlign.center,
           ),
         ],
@@ -1152,13 +1185,18 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Widget _buildTransactions() {
+    // [UPDATE 2026-06-11-THEME] Theme-aware colors for the transactions list.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final txText = isDark ? Colors.white : const Color(0xFF111B21);
+    final txMuted = isDark ? Colors.white38 : const Color(0xFF667781);
+    final txTileBg = isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF0F2F5);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Recent Transactions',
           style: GoogleFonts.poppins(
-            color: Colors.white,
+            color: txText,
             fontWeight: FontWeight.bold,
             fontSize: 16,
           ),
@@ -1172,14 +1210,14 @@ class _WalletScreenState extends State<WalletScreen> {
                 children: [
                   Icon(
                     Icons.receipt_long_rounded,
-                    color: Colors.white.withOpacity(0.1),
+                    color: txMuted.withOpacity(0.4),
                     size: 48,
                   ),
                   const SizedBox(height: 12),
                   Text(
                     'No transactions yet',
                     style: GoogleFonts.poppins(
-                      color: Colors.white24,
+                      color: txMuted,
                       fontSize: 14,
                     ),
                   ),
@@ -1208,14 +1246,14 @@ class _WalletScreenState extends State<WalletScreen> {
               iconColor = Colors.amber;
             } else {
               icon = Icons.receipt_long_rounded;
-              iconColor = Colors.white54;
+              iconColor = txMuted;
             }
 
             return Container(
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
+                color: txTileBg,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1233,7 +1271,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         Text(
                           desc,
                           style: GoogleFonts.poppins(
-                            color: Colors.white,
+                            color: txText,
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
                           ),
@@ -1241,7 +1279,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         Text(
                           t['created_at']?.toString().substring(0, 10) ?? '',
                           style: GoogleFonts.poppins(
-                            color: Colors.white38,
+                            color: txMuted,
                             fontSize: 11,
                           ),
                         ),
@@ -1253,11 +1291,11 @@ class _WalletScreenState extends State<WalletScreen> {
                     children: [
                       Text(
                         '${type == 'earning' ? '+' : '-'}₦${amount.toStringAsFixed(2)}',
-                        style: GoogleFonts.poppins(
+                        style: Money.style(
                           color:
                               type == 'earning'
                                   ? const Color(0xFF25D366)
-                                  : Colors.white,
+                                  : txText,
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
                         ),

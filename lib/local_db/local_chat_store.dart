@@ -462,9 +462,45 @@ class LocalChatStore {
     }
 
     late final StreamController<List<Map<String, dynamic>>> controller;
+
+    // [UPDATE 2026-06-11-SMOOTH] Coalesce emits + skip no-op rebuilds.
+    // The previous implementation emitted on EVERY local Isar change AND every
+    // remote Supabase change. Because a remote message is mirrored into Isar
+    // (upsertFromRemote) it triggered the local watch too — causing a double
+    // emit storm and the visible "reloading / bouncing while chatting" bug.
+    // We now (a) debounce emits into a single microtask-ish window, and
+    // (b) compute a cheap signature of the resulting list and DROP the emit
+    // entirely if nothing actually changed.
+    Timer? emitDebounce;
+    String? lastSignature;
+
+    String _signatureOf(List<Map<String, dynamic>> list) {
+      // Cheap content fingerprint: id + the fields that affect rendering.
+      final sb = StringBuffer();
+      for (final m in list) {
+        sb
+          ..write(m['id'])
+          ..write('|')
+          ..write(m['content'])
+          ..write('|')
+          ..write(m['message_type'])
+          ..write('|')
+          ..write(m['is_read'] == true ? 1 : 0)
+          ..write(m['is_delivered'] == true ? 1 : 0)
+          ..write(m['is_sending'] == true ? 1 : 0)
+          ..write(m['is_pinned'] == true ? 1 : 0)
+          ..write(m['edited_at'] ?? '')
+          ..write(m['reactions'] ?? '')
+          ..write(';');
+      }
+      return sb.toString();
+    }
+
     controller = StreamController<List<Map<String, dynamic>>>(
       onListen: () {
-        void emit() {
+        void doEmit() {
+          if (controller.isClosed) return;
+          // remoteMessages take priority over the local mirror for the same id.
           final merged = <int, Map<String, dynamic>>{...localMessages, ...remoteMessages};
           final list = merged.values.toList()
             ..sort((a, b) {
@@ -476,7 +512,18 @@ class LocalChatStore {
               final bc = b['created_at']?.toString() ?? '';
               return ac.compareTo(bc);
             });
-          if (!controller.isClosed) controller.add(list);
+
+          final sig = _signatureOf(list);
+          if (sig == lastSignature) return; // nothing changed → no rebuild
+          lastSignature = sig;
+          controller.add(list);
+        }
+
+        void scheduleEmit() {
+          // Collapse a burst of local+remote events (which always arrive
+          // back-to-back) into a single emit on the next frame.
+          emitDebounce?.cancel();
+          emitDebounce = Timer(const Duration(milliseconds: 60), doEmit);
         }
 
         localSub = watchConversation(ownerUserId: ownerUserId, otherUserId: otherUserId).listen(
@@ -486,7 +533,7 @@ class LocalChatStore {
               if (m.remoteId == null) continue;
               localMessages[m.remoteId!] = _localToMap(m);
             }
-            emit();
+            scheduleEmit();
           },
           onError: (_) {},
         );
@@ -494,6 +541,8 @@ class LocalChatStore {
         remoteSub = _supabase.getMessages(ownerUserId, otherUserId).listen(
           (msgs) {
             remoteMessages.clear();
+            // Only mirror rows we don't already have (or that changed) into Isar
+            // so we don't thrash the local watch unnecessarily.
             for (final m in msgs) {
               final id = m['id'];
               if (id == null) continue;
@@ -502,7 +551,7 @@ class LocalChatStore {
               remoteMessages[intId] = m;
               unawaited(upsertFromRemote(ownerUserId: ownerUserId, otherUserId: otherUserId, m: m));
             }
-            emit();
+            scheduleEmit();
           },
           onError: (_) {
             // Offline / network error — local data still flows
@@ -510,6 +559,7 @@ class LocalChatStore {
         );
       },
       onCancel: () async {
+        emitDebounce?.cancel();
         await localSub?.cancel();
         await remoteSub?.cancel();
       },
