@@ -1,46 +1,57 @@
 import 'package:flutter/material.dart';
 
 /// Centralized brand colors for both dark and light themes.
-/// [UPDATE 2026-06-10-P5] WhatsApp-exact light mode colors
+/// [UPDATE 2026-06-10-WA] WhatsApp-exact light mode — flat, solid colors,
+/// no gradients, no glass / blur effects in light mode. Mirrors WhatsApp's
+/// 2025/2026 light-theme look so text is always readable.
 class AppColors {
-  // Dark mode — WhatsApp dark
+  // ───────────────────────────── Dark mode ─────────────────────────────
   static const bgDark = Color(0xFF0B141A);
   static const surfaceDark = Color(0xFF111B21);
   static const appBarDark = Color(0xFF1F2C33);
 
-  // Light mode — WhatsApp light (as of 2025/2026)
+  // ───────────────────────────── Light mode (WhatsApp 2025/26) ─────────
+  // Chat list / scaffold background — WhatsApp uses pure white for the list
   static const bgLight = Color(0xFFFFFFFF);
+  // Chat *room* background — WhatsApp's beige doodle paper
+  static const chatRoomBgLight = Color(0xFFEFEAE2);
   static const surfaceLight = Color(0xFFFFFFFF);
-  static const appBarLight = Color(0xFFFFFFFF); // White app bar like current WhatsApp
+  static const appBarLight = Color(0xFFFFFFFF);
 
-  // Accents (shared)
+  // ───────────────────────────── Accents (shared) ──────────────────────
   static const whatsappGreen = Color(0xFF25D366);
   static const whatsappTeal = Color(0xFF075E54);
   static const violet = Color(0xFF7C3AED);
   static const cyan = Color(0xFF22D3EE);
 
-  // Outgoing bubble colors (WhatsApp-style)
+  // ───────────────────────────── Bubble colors ─────────────────────────
+  // Outgoing (sent by me)
   static const outgoingBubbleDark = Color(0xFF005C4B);
-  static const outgoingBubbleLight = Color(0xFFD9FDD3);
+  static const outgoingBubbleLight = Color(0xFFD9FDD3); // WhatsApp light green
 
-  // Incoming bubble colors
+  // Incoming
   static const incomingBubbleDark = Color(0xFF1F2C33);
-  static const incomingBubbleLight = Color(0xFFFFFFFF);
+  static const incomingBubbleLight = Color(0xFFFFFFFF); // Pure white
 
-  // Text
-  static const textLight = Color(0xFF1E293B);
+  // ───────────────────────────── Text colors ───────────────────────────
+  // Light mode message text — DARK so it's always readable on green/white
+  static const textLight = Color(0xFF111B21);
   static const textDark = Color(0xFFE9EDEF);
   static const textMutedDark = Color(0xFF8696A0);
   static const textMutedLight = Color(0xFF667781);
 
   // Light mode UI colors (WhatsApp current)
-  static const lightScaffoldBg = Color(0xFFEFEFEF); // Chat list bg
-  static const lightSurface = Color(0xFFFFFFFF);     // Cards, drawers
-  static const lightAppBarTitle = Color(0xFF00A884);  // WhatsApp green title
-  static const lightSearchBg = Color(0xFFF0F2F5);     // Search field bg
+  static const lightScaffoldBg = Color(0xFFFFFFFF);
+  static const lightChatRoomBg = Color(0xFFEFEAE2);
+  static const lightSurface = Color(0xFFFFFFFF);
+  static const lightAppBarTitle = Color(0xFF008069); // WA dark green title
+  static const lightSearchBg = Color(0xFFF0F2F5);
   static const lightDivider = Color(0xFFE9EDEF);
-  static const lightTabSelected = Color(0xFF00A884);  // WhatsApp green selected
+  static const lightTabSelected = Color(0xFF008069);
   static const lightTabNormal = Color(0xFF667781);
+  static const lightReplyBg = Color(0xFFF0F2F5);
+  static const lightInputBg = Color(0xFFFFFFFF);
+  static const lightBubbleShadow = Color(0x14000000); // 8% black for subtle shadow
 
   // Dark mode UI colors
   static const darkScaffoldBg = Color(0xFF0B141A);
@@ -55,6 +66,12 @@ class AppColors {
   static Color textMutedFor(Brightness b) => b == Brightness.dark ? textMutedDark : textMutedLight;
   /// Get app bar color based on brightness
   static Color appBarFor(Brightness b) => b == Brightness.dark ? appBarDark : appBarLight;
+  /// Bubble color for outgoing message
+  static Color outgoingBubbleFor(Brightness b) => b == Brightness.dark ? outgoingBubbleDark : outgoingBubbleLight;
+  /// Bubble color for incoming message
+  static Color incomingBubbleFor(Brightness b) => b == Brightness.dark ? incomingBubbleDark : incomingBubbleLight;
+  /// Text color on bubble (always dark in light mode for readability)
+  static Color bubbleTextFor(Brightness b) => b == Brightness.dark ? Colors.white : textLight;
 
   static const LinearGradient accentGradient = LinearGradient(
     colors: [violet, cyan],

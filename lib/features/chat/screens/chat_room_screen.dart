@@ -22,6 +22,7 @@ import '../../../services/supabase_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/background_message_poller.dart';
 import '../../../services/theme_provider.dart';
+import '../../../core/offline_queue.dart';
 import '../../../local_db/local_chat_store.dart';
 import '../../../shared/widgets/rich_text_editor.dart';
 import '../../../shared/widgets/glass_container.dart';
@@ -571,9 +572,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     super.dispose();
   }
 
+  // [UPDATE 2026-06-10-WA] Send guard — prevents double-tap from creating
+  // two identical messages (the "double message sending" bug).
+  bool _sendInFlight = false;
+
   Future<void> _sendMessage() async {
+    if (_sendInFlight) return;
+    _sendInFlight = true;
+    // Release the guard quickly so user can keep typing the next message,
+    // but slow enough to swallow accidental double-taps.
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) _sendInFlight = false;
+    });
+
     final content = _messageController.text.trim();
-    if (content.isEmpty) return;
+    if (content.isEmpty) {
+      _sendInFlight = false;
+      return;
+    }
 
     _messageController.clear();
 
@@ -648,16 +664,34 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
       _localPendingMessages = [..._localPendingMessages, localMsg];
     });
 
-    // Send to Supabase in the background (UI already shows the message)
-    _supabaseService.sendMessage(
-      senderId: widget.currentUser['id'],
-      receiverId: widget.otherUser['id'],
-      content: hasRich ? plainContent : content,
-      messageType: messageType,
-      replyToId: _replyToMessage?['id'],
-      isRichText: isRichText,
-      richTextJson: richTextJson,
-    );
+    // [UPDATE 2026-06-10-WA] Send to Supabase. If it fails (offline, server
+    // hiccup, etc.) drop into the offline queue so it auto-retries on reconnect.
+    () async {
+      try {
+        await _supabaseService.sendMessage(
+          senderId: widget.currentUser['id'],
+          receiverId: widget.otherUser['id'],
+          content: hasRich ? plainContent : content,
+          messageType: messageType,
+          replyToId: _replyToMessage?['id'],
+          isRichText: isRichText,
+          richTextJson: richTextJson,
+        );
+      } catch (e) {
+        debugPrint('sendMessage failed → enqueue for retry: $e');
+        try {
+          await OfflineMessageQueue.instance.enqueue(
+            senderId: widget.currentUser['id'],
+            receiverId: widget.otherUser['id'],
+            content: hasRich ? plainContent : content,
+            messageType: messageType,
+            replyToId: _replyToMessage?['id'],
+            isRichText: isRichText,
+            richTextJson: richTextJson,
+          );
+        } catch (_) {}
+      }
+    }();
 
     // Record earning for Premium users (₦0.75 per message)
     try {
@@ -1544,16 +1578,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     // [UPDATE 2026-06-10-P5] Use theme-aware background color
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lightMode = !isDark;
-    final bgColor = Theme.of(context).scaffoldBackgroundColor;
+    // [UPDATE 2026-06-10-WA] WhatsApp chat-room background — beige paper in light mode,
+    // dark in dark mode. Solid color, no overlays/blur.
+    final bgColor = isDark ? Theme.of(context).scaffoldBackgroundColor : const Color(0xFFEFEAE2);
     final textColor = isDark ? Colors.white : Colors.black87;
 
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: textColor),
-        titleTextStyle: GoogleFonts.poppins(color: textColor, fontSize: 16, fontWeight: FontWeight.bold),
+        // [UPDATE 2026-06-10-WA] WhatsApp light header — solid white, dark green accent
+        backgroundColor: isDark ? Colors.transparent : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: isDark ? 0 : 1,
+        shadowColor: isDark ? Colors.transparent : const Color(0x14000000),
+        iconTheme: IconThemeData(color: isDark ? Colors.white : const Color(0xFF111B21)),
+        titleTextStyle: GoogleFonts.poppins(
+          color: isDark ? Colors.white : const Color(0xFF111B21),
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
         title: Row(
           children: [
             CircleAvatar(
@@ -1697,7 +1740,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
             Positioned.fill(
               child: Image.file(File(_wallpaperPath!), fit: BoxFit.cover),
             ),
-          Positioned.fill(child: Container(color: lightMode ? Colors.white.withOpacity(0.85) : Colors.black.withOpacity(0.25))),
+          // [UPDATE 2026-06-10-WA] Removed shiny white-overlay haze in light mode.
+          // In dark mode keep a subtle darken to preserve contrast over wallpaper.
+          if (_wallpaperPath != null && isDark)
+            Positioned.fill(child: Container(color: Colors.black.withOpacity(0.25))),
           Column(
             children: [
           Expanded(
@@ -1710,20 +1756,43 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                 otherUserId: widget.otherUser['id'],
               ),
               builder: (context, snapshot) {
-                // ── WHATSAPP-LIKE: Merge local pending messages with remote messages ──
-                // Local pending messages appear INSTANTLY, even before Supabase confirms.
+                // [UPDATE 2026-06-10-WA] WhatsApp-like dedupe.
+                // The local pending message has id < 0 (timestamp-based).
+                // The remote message has a positive integer id. We match by
+                // (sender, content, message_type, close timestamp ≤ 30s) to
+                // remove the pending bubble as soon as the real one arrives.
                 List<Map<String, dynamic>> messages;
                 if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                   messages = snapshot.data!;
-                  // Remove duplicates (local pending that have arrived via stream)
-                  final remoteIds = messages.map((m) => m['id']).toSet();
-                  _localPendingMessages = _localPendingMessages
-                      .where((m) => !remoteIds.contains(m['id']))
-                      .toList();
+                  final myId = widget.currentUser['id'];
+                  final myRecentRemote = messages.where((m) {
+                    if (m['sender_id'] != myId) return false;
+                    final created = DateTime.tryParse((m['created_at'] ?? '').toString());
+                    if (created == null) return false;
+                    return DateTime.now().toUtc().difference(created.toUtc()).inSeconds.abs() < 60;
+                  }).toList();
+
+                  _localPendingMessages = _localPendingMessages.where((p) {
+                    final pCreated = DateTime.tryParse((p['created_at'] ?? '').toString());
+                    if (pCreated == null) return false;
+                    final pContent = (p['content'] ?? '').toString();
+                    final pType = (p['message_type'] ?? 'text').toString();
+                    // If a remote message close in time + same content exists, drop the pending.
+                    final hasMatch = myRecentRemote.any((r) {
+                      if ((r['message_type'] ?? 'text').toString() != pType) return false;
+                      if ((r['content'] ?? '').toString() != pContent) return false;
+                      final rCreated = DateTime.tryParse((r['created_at'] ?? '').toString());
+                      if (rCreated == null) return false;
+                      return rCreated.toUtc().difference(pCreated.toUtc()).inSeconds.abs() < 30;
+                    });
+                    // Also drop pending older than 60s (stale — request likely failed silently)
+                    final tooOld = DateTime.now().toUtc().difference(pCreated.toUtc()).inSeconds > 60;
+                    return !hasMatch && !tooOld;
+                  }).toList();
                 } else {
                   messages = [];
                 }
-                // Prepend local pending messages (newest last for correct order)
+                // Append still-pending local messages to the end (they appear instantly)
                 if (_localPendingMessages.isNotEmpty) {
                   messages = [...messages, ..._localPendingMessages];
                 }
@@ -1972,23 +2041,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
 
     final bool lightMode = Theme.of(context).brightness == Brightness.light;
 
-    final myBubbleGradient = lightMode
-        ? LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFD9FDD3),
-              Color(0xFFD9FDD3),
-            ],
-          )
-        : LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF075E54),
-              Color(0xFF054D44),
-            ],
-          );
+    // [UPDATE 2026-06-10-WA] WhatsApp-exact bubble colors — solid, no gradient.
+    // Outgoing: light green (#D9FDD3) in light mode, deep teal in dark mode.
+    // Incoming: white in light mode, dark grey in dark mode.
+    final Color myBubbleColor = lightMode
+        ? const Color(0xFFD9FDD3)
+        : const Color(0xFF005C4B);
+    final Color otherBubbleColor = lightMode
+        ? Colors.white
+        : const Color(0xFF1F2C33);
+    final Color bubbleColor = isMe ? myBubbleColor : otherBubbleColor;
 
     final bubbleRadius = BorderRadius.circular(22).copyWith(
       bottomRight: isMe ? const Radius.circular(6) : const Radius.circular(22),
@@ -2075,7 +2137,7 @@ final editedColor = isMe
           isRichText && richTextJson.isNotEmpty
               ? RichText(
                   text: TextSpan(
-                    style: TextStyle(color: isMe ? Colors.white : (lightMode ? Colors.black87 : Colors.white)),
+                    style: TextStyle(color: lightMode ? const Color(0xFF111B21) : Colors.white),
                     children: RichTextEditor.buildTextSpans(
                       RichTextEditor.parseRichText(richTextJson),
                     ),
@@ -2103,7 +2165,7 @@ final editedColor = isMe
         else
           Text(
             (message['content'] ?? '').toString(),
-            style: TextStyle(color: isMe ? Colors.white : (lightMode ? Colors.black87 : Colors.white), fontSize: 15),
+            style: TextStyle(color: lightMode ? const Color(0xFF111B21) : Colors.white, fontSize: 15),
           ),
 
         if (!isDeleted && !isEmojiOnly) ...[
@@ -2174,38 +2236,47 @@ final editedColor = isMe
           )
         : (isMe
             ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                  gradient: myBubbleGradient,
-                  borderRadius: bubbleRadius,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2AABEE).withOpacity(0.22),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: bubbleContent,
-              )
-            : Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: lightMode ? Colors.white : const Color(0xFF1F2C33),
+                  // [UPDATE 2026-06-10-WA] Solid bubble color, no gradient
+                  color: bubbleColor,
                   borderRadius: bubbleRadius,
                   boxShadow: lightMode
-                      ? [
+                      ? const [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
+                            color: Color(0x14000000),
+                            blurRadius: 1,
+                            offset: Offset(0, 1),
                           ),
                         ]
                       : [
                           BoxShadow(
-                            color: const Color(0xFF2AABEE).withOpacity(0.12),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                ),
+                child: bubbleContent,
+              )
+            : Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  borderRadius: bubbleRadius,
+                  boxShadow: lightMode
+                      ? const [
+                          BoxShadow(
+                            color: Color(0x14000000),
+                            blurRadius: 1,
+                            offset: Offset(0, 1),
+                          ),
+                        ]
+                      : [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
                           ),
                         ],
                 ),
@@ -2330,9 +2401,10 @@ final editedColor = isMe
 
   /// Parse and render text with *bold*, _italic_, ~strikethrough~
   Widget _buildPlainTextWithFormatting(String text, {bool isMe = true, bool lightMode = false}) {
-    final textColor = isMe
-        ? Colors.white
-        : (lightMode ? Colors.black87 : Colors.white);
+    // [UPDATE 2026-06-10-WA] In light mode all bubble text is dark for readability
+    final textColor = lightMode
+        ? const Color(0xFF111B21)
+        : Colors.white;
     if (!RichTextEditor.hasFormatting(text)) {
       return Text(text, style: TextStyle(color: textColor, fontSize: 15));
     }
@@ -2695,11 +2767,15 @@ final editedColor = isMe
 
   Widget _buildMessageInput() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final inputBg = isDark ? Colors.black.withOpacity(0.2) : Colors.white;
+    // [UPDATE 2026-06-10-WA] WhatsApp-exact input area
+    final inputBg = isDark ? const Color(0xFF1F2C33) : const Color(0xFFEFEAE2);
     final inputBorder = isDark
         ? Colors.white.withOpacity(0.05)
-        : Colors.grey.shade200;
-    final iconColorLocal = isDark ? Colors.white70 : Colors.grey.shade600;
+        : Colors.transparent;
+    final iconColorLocal = isDark ? Colors.white70 : const Color(0xFF54656F);
+    final textFieldBg = isDark
+        ? Colors.white.withOpacity(0.05)
+        : Colors.white;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -2755,19 +2831,20 @@ final editedColor = isMe
                     constraints: const BoxConstraints(maxHeight: 100),
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100,
+                      color: textFieldBg,
                       borderRadius: BorderRadius.circular(30),
+                      border: isDark ? null : Border.all(color: const Color(0xFFE9EDEF), width: 0.5),
                     ),
                     child: TextField(
                       controller: _messageController,
-                      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                      style: TextStyle(color: isDark ? Colors.white : const Color(0xFF111B21)),
                       maxLines: null,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _sendMessage(),
                       scrollController: ScrollController(),
                       decoration: InputDecoration(
                         hintText: _editingMessage != null ? 'Edit message...' : 'Message...',
-                        hintStyle: TextStyle(color: isDark ? Colors.white30 : Colors.grey.shade400, fontSize: 14),
+                        hintStyle: TextStyle(color: isDark ? Colors.white30 : const Color(0xFF8696A0), fontSize: 14),
                         border: InputBorder.none,
                       ),
                     ),
@@ -2776,7 +2853,10 @@ final editedColor = isMe
                 const SizedBox(width: 4),
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: _editingMessage != null ? const Color(0xFF2AABEE) : const Color(0xFF6366F1),
+                  // [UPDATE 2026-06-10-WA] WhatsApp green send button
+                  backgroundColor: _editingMessage != null
+                      ? const Color(0xFF00A884)
+                      : const Color(0xFF00A884),
                   child: GestureDetector(
                     onLongPress: _editingMessage != null ? null : _scheduleMessage,
                     child: IconButton(

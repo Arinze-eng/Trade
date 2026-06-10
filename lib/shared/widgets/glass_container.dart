@@ -1,6 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
+/// [UPDATE 2026-06-10-WA] In light mode this widget renders as a FLAT,
+/// SOLID white card with a subtle shadow — matching WhatsApp's light
+/// surface look. The blur/glass effect is only used in dark mode.
 class GlassContainer extends StatelessWidget {
   final Widget child;
   final double blur;
@@ -14,7 +17,7 @@ class GlassContainer extends StatelessWidget {
     required this.child,
     this.blur = 20.0,
     this.opacity = 0.1,
-    this.borderRadius = 30.0,
+    this.borderRadius = 16.0,
     this.padding = const EdgeInsets.all(24.0),
     this.gradientColors,
   });
@@ -22,16 +25,28 @@ class GlassContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark
-        ? Colors.white.withOpacity(0.2)
-        : Colors.grey.shade300;
-    final shadowColor = isDark
-        ? Colors.black.withOpacity(0.2)
-        : Colors.black.withOpacity(0.08);
-    final defaultColors = isDark
-        ? [Colors.white.withOpacity(0.15), Colors.white.withOpacity(0.05)]
-        : [Colors.white, Colors.white];
 
+    if (!isDark) {
+      // ── WhatsApp-style flat light surface ──
+      return Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(borderRadius),
+          border: Border.all(color: const Color(0xFFE9EDEF), width: 0.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x14000000),
+              blurRadius: 6,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+        child: child,
+      );
+    }
+
+    // ── Original glass effect kept only for dark mode ──
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
@@ -41,17 +56,21 @@ class GlassContainer extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(borderRadius),
             border: Border.all(
-              color: borderColor,
+              color: Colors.white.withOpacity(0.2),
               width: 1.5,
             ),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: gradientColors ?? defaultColors,
+              colors: gradientColors ??
+                  [
+                    Colors.white.withOpacity(0.15),
+                    Colors.white.withOpacity(0.05),
+                  ],
             ),
             boxShadow: [
               BoxShadow(
-                color: shadowColor,
+                color: Colors.black.withOpacity(0.2),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),

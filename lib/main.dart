@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
 import 'core/vpn_splash_screen.dart';
+import 'core/offline_queue.dart';
 import 'services/vpn_manager.dart';
 import 'services/notification_service.dart';
 import 'services/background_message_poller.dart';
@@ -40,6 +41,12 @@ void main() async {
   // ── Local notification channels ──
   await NotificationService.init();
   await BackgroundMessagePoller.init();
+
+  // [UPDATE 2026-06-10-WA] Start the offline message queue listener globally
+  // so queued messages auto-retry the moment connectivity returns.
+  OfflineMessageQueue.instance.startListening();
+  // Try one initial flush in case there are queued messages from a previous run
+  unawaited(OfflineMessageQueue.instance.flush());
 
   // ── Firebase Cloud Messaging (real-time push notifications ONLY) ──
   await FcmService().init();

@@ -1,25 +1,37 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-/// [UPDATE 2026-06-08-LAGFIX] Offline message queue
+import '../services/supabase_service.dart';
+
+/// [UPDATE 2026-06-10-WA] Offline message queue (WhatsApp-style)
 ///
-/// When sending messages/media on a weak or down network, this queue
-/// stores them locally and flushes them when connectivity is restored.
+/// When sending messages on a weak or down network, this queue stores
+/// them locally and *actually re-sends* them when connectivity is restored.
 ///
 /// Prevents:
-///   - Failed sends leaving messages in an inconsistent state
+///   - Failed sends being lost
 ///   - UI blocking on network-dependent send() calls
 ///   - Lost messages when app closes mid-send
+///
+/// Notes:
+///   - flush() now performs real retries through SupabaseService.sendMessage.
+///   - Successfully sent entries are removed from disk immediately.
+///   - Entries that fail get retryCount incremented; once retryCount >= 5
+///     they are kept on disk but skipped (manual retry possible).
 class OfflineMessageQueue {
   static const _key = 'offline_msg_queue_v1';
 
   static final OfflineMessageQueue instance = OfflineMessageQueue._();
   OfflineMessageQueue._();
 
+  final SupabaseService _supabase = SupabaseService();
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _listening = false;
+  bool _flushing = false;
 
   /// Start listening for connectivity changes to auto-flush.
   void startListening() {
@@ -107,27 +119,60 @@ class OfflineMessageQueue {
     return (await pending()).length;
   }
 
-  /// Flush all queued messages — marks them for retry.
+  /// [UPDATE 2026-06-10-WA] Flush queued messages — actually re-send them
+  /// through Supabase and drop successful entries from disk.
+  /// Returns number of messages successfully sent.
   Future<int> flush() async {
-    final sp = await SharedPreferences.getInstance();
-    final entries = await _load(sp);
-    if (entries.isEmpty) return 0;
+    if (_flushing) return 0;
+    _flushing = true;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final entries = await _load(sp);
+      if (entries.isEmpty) return 0;
 
-    int flushed = 0;
-    final remaining = <Map<String, dynamic>>[];
+      int flushed = 0;
+      final remaining = <Map<String, dynamic>>[];
 
-    for (final entry in entries) {
-      final retryCount = (entry['retryCount'] ?? 0) as int;
-      if (retryCount >= 5) {
-        remaining.add(entry);
-        continue;
+      for (final entry in entries) {
+        final retryCount = (entry['retryCount'] ?? 0) as int;
+        if (retryCount >= 5) {
+          // Skip — keep on disk so the user can manually retry / clear.
+          remaining.add(entry);
+          continue;
+        }
+
+        try {
+          await _supabase.sendMessage(
+            senderId: (entry['senderId'] ?? '').toString(),
+            receiverId: (entry['receiverId'] ?? '').toString(),
+            content: (entry['content'] ?? '').toString(),
+            messageType: (entry['messageType'] ?? 'text').toString(),
+            mediaPath: entry['mediaPath']?.toString(),
+            mediaMime: entry['mediaMime']?.toString(),
+            mediaDurationMs: entry['mediaDurationMs'] is int ? entry['mediaDurationMs'] as int : null,
+            mediaName: entry['mediaName']?.toString(),
+            mediaSizeBytes: entry['mediaSizeBytes'] is int ? entry['mediaSizeBytes'] as int : null,
+            replyToId: entry['replyToId'] is int ? entry['replyToId'] as int : null,
+            caption: entry['caption']?.toString(),
+            viewOnce: entry['viewOnce'] == true,
+            isRichText: entry['isRichText'] == true,
+            richTextJson: entry['richTextJson']?.toString(),
+            isForwarded: entry['isForwarded'] == true,
+            forwardedFromId: entry['forwardedFromId']?.toString(),
+          );
+          flushed++;
+        } catch (e) {
+          debugPrint('OfflineQueue: send failed for ${entry['id']}: $e');
+          entry['retryCount'] = retryCount + 1;
+          remaining.add(entry);
+        }
       }
-      entry['retryCount'] = retryCount + 1;
-      remaining.add(entry);
-    }
 
-    await sp.setString(_key, jsonEncode(remaining));
-    return flushed;
+      await sp.setString(_key, jsonEncode(remaining));
+      return flushed;
+    } finally {
+      _flushing = false;
+    }
   }
 
   /// Called after successfully sending one entry — remove from queue
