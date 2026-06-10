@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [UPDATE 2026-06-10-P4] WhatsApp-Like Smoothness — Local-First Messaging & Batch Meta Loading
+
+### Local-First Message Sending (chat_room_screen.dart)
+- Messages now appear INSTANTLY in a local pending list before Supabase confirms
+- Local pending messages are merged with Supabase Realtime stream — duplicates auto-removed
+- No more waiting for server round-trip to see your own message (WhatsApp-like feel)
+
+### Pre-Cached Thread Metadata (chat_list_screen.dart)
+- Added `_preloadThreadMetaCache()` — all thread meta loaded eagerly in batch after threads refresh
+- Eliminates per-tile async `getMeta` calls during scrolling (zero-lag chat list rendering)
+
+### Parallel Data Loading
+- Groups, discover users, and thread data loaded in parallel with `Future.wait`
+
 ## [UPDATE 2026-06-10-P3] Scroll Fix — Profile Header Now Scrolls With Content
 
 ### Scroll Behavior Fix

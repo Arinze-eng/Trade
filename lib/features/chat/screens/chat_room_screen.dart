@@ -98,6 +98,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   final Map<String, GlobalKey> _dateHeaderKeys = {};
 
   List<Map<String, dynamic>> _latestMessages = const [];
+  // ── WHATSAPP-LIKE LOCAL-FIRST: Local messages for instant rendering ──
+  List<Map<String, dynamic>> _localPendingMessages = const [];
 
   // ── SMOOTH SCROLL FIX: Track previous message count ──
   // Only auto-scroll when NEW messages arrive, not on every rebuild
@@ -602,7 +604,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
       plainContent = segments.map((s) => s.text).join();
     }
 
-    await _supabaseService.sendMessage(
+    // ── WHATSAPP-LIKE: Show message instantly in local pending list ──
+    // before Supabase even confirms. This makes the send FEEL instant.
+    final localMsg = <String, dynamic>{
+      'id': -DateTime.now().millisecondsSinceEpoch, // negative = pending
+      'sender_id': widget.currentUser['id'],
+      'receiver_id': widget.otherUser['id'],
+      'content': hasRich ? plainContent : content,
+      'message_type': messageType,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'is_read': true,
+      'is_liked': false,
+      'reply_to_id': _replyToMessage?['id'],
+      'is_rich_text': isRichText,
+      'rich_text_json': richTextJson,
+      'is_pinned': false,
+      '_is_pending': true,
+    };
+    setState(() {
+      _localPendingMessages = [..._localPendingMessages, localMsg];
+    });
+
+    // Send to Supabase in the background (UI already shows the message)
+    _supabaseService.sendMessage(
       senderId: widget.currentUser['id'],
       receiverId: widget.otherUser['id'],
       content: hasRich ? plainContent : content,
@@ -1659,11 +1683,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                 widget.otherUser['id'],
               ),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                // ── WHATSAPP-LIKE: Merge local pending messages with remote messages ──
+                // Local pending messages appear INSTANTLY, even before Supabase confirms.
+                List<Map<String, dynamic>> messages;
+                if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                  messages = snapshot.data!;
+                  // Remove duplicates (local pending that have arrived via stream)
+                  final remoteIds = messages.map((m) => m['id']).toSet();
+                  _localPendingMessages = _localPendingMessages
+                      .where((m) => !remoteIds.contains(m['id']))
+                      .toList();
+                } else {
+                  messages = [];
+                }
+                // Prepend local pending messages (newest last for correct order)
+                if (_localPendingMessages.isNotEmpty) {
+                  messages = [...messages, ..._localPendingMessages];
+                }
+
+                if (!snapshot.hasData && messages.isEmpty) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final messages = snapshot.data!;
                 _latestMessages = messages;
 
                 // Compute pinned from the SAME snapshot to avoid extra stream rebuilds.

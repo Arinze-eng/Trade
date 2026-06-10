@@ -90,6 +90,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   final _cdnBusiness = CdnChatBusinessService();
   // Cache for thread meta to avoid FutureBuilder lag on every setState
   final Map<String, ChatThreadMeta?> _threadMetaCache = {};
+  // ── WHATSAPP-LIKE: All thread metas loaded eagerly in batch ──
+  bool _threadMetaCacheLoaded = false;
   UserTier _userTier = UserTier.free;
   double _walletBalance = 0;
 
@@ -447,10 +449,30 @@ class _ChatListScreenState extends State<ChatListScreen>
       if (mounted) setState(() => _threadsLoading = true);
       final data = await _supabaseService.getChatThreads();
       if (!mounted) return;
+
+      // ── WHATSAPP-LIKE: Pre-cache all thread meta eagerly ──
+      _preloadThreadMetaCache(data);
+      _threadMetaCacheLoaded = true;
+
       setState(() => _threads = data);
     } catch (_) {
     } finally {
       if (mounted) setState(() => _threadsLoading = false);
+    }
+  }
+
+  // ── WHATSAPP-LIKE: Load all thread metadata in batch ──
+  // This eliminates the per-tile async getMeta call during scrolling
+  void _preloadThreadMetaCache(List<Map<String, dynamic>> threads) {
+    final user = _supabaseService.currentUser;
+    if (user == null) return;
+    for (final t in threads) {
+      final otherId = (t['other_user_id'] ?? t['other_id'] ?? '').toString();
+      if (otherId.isEmpty) continue;
+      // Kick off async load — doesn't block UI
+      _localChatStore.getMeta(ownerUserId: user.id, otherId: otherId).then((meta) {
+        _threadMetaCache[otherId] = meta;
+      });
     }
   }
 
@@ -3055,12 +3077,13 @@ class _ChatListScreenState extends State<ChatListScreen>
     final user = _supabaseService.currentUser;
     if (user == null) return const SizedBox.shrink();
 
-    // Sync cache: use cached ChatThreadMeta instead of FutureBuilder on every rebuild
+    // ── WHATSAPP-LIKE: Synchronous meta from preloaded cache ──
+    // No async getMeta per tile — all loaded eagerly in _preloadThreadMetaCache
     final metaKey = otherId;
-    var meta = _threadMetaCache[metaKey];
+    final meta = _threadMetaCache[metaKey];
+    // If cache miss (first load scenario), load lazily without blocking render
     if (meta == null && !_threadMetaCache.containsKey(metaKey)) {
-      // Mark loading, kick off async fetch
-      _threadMetaCache[metaKey] = null;
+      _threadMetaCache[metaKey] = null; // mark loading
       _localChatStore.getMeta(ownerUserId: user.id, otherId: otherId).then((m) {
         if (mounted) {
           _threadMetaCache[metaKey] = m;
