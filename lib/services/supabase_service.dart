@@ -417,10 +417,29 @@ class SupabaseService {
   // Supabase Realtime, then stored permanently on-device via Isar.
   // Supabase auto-cleans messages after messageAutoDeleteDuration (2h).
 
+  // [UPDATE 2026-06-11-NOFLICKER] Server-side filtered conversation stream.
+  //
+  // ROOT CAUSE of the old flicker/lag: the previous version streamed the ENTIRE
+  // `messages` table (no `.eq`/`.inFilter`) and filtered client-side. Supabase
+  // realtime therefore pushed the FULL table snapshot on EVERY change made by
+  // ANY user app-wide — so each chat screen rebuilt constantly. As the table
+  // grew, this got worse: the chat "reloaded / bounced / flickered" the whole
+  // time you were chatting.
+  //
+  // FIX: filter on the server with `.inFilter('sender_id', [me, other])`. Now
+  // realtime only delivers rows whose sender is one of the two participants —
+  // a tiny slice of traffic — and we just drop the few cross-conversation rows
+  // (where the receiver isn't the right peer) locally. This collapses the
+  // re-emit storm to ~only this conversation's events. Combined with the
+  // composite index `messages_pair_created_idx`, reads are instant.
+  //
+  // We keep the result oldest→newest; pinned-first ordering is applied in the
+  // UI layer (the local-first store) so this stream stays cheap and stable.
   Stream<List<Map<String, dynamic>>> getMessages(String currentUserId, String otherUserId) {
     return _client
         .from('messages')
         .stream(primaryKey: ['id'])
+        .inFilter('sender_id', [currentUserId, otherUserId])
         .order('created_at', ascending: true)
         .map((data) {
           final filtered = data
@@ -435,16 +454,20 @@ class SupabaseService {
             final bPinned = b['is_pinned'] == true;
             if (aPinned && !bPinned) return -1;
             if (!aPinned && bPinned) return 1;
-            return a['created_at'].compareTo(b['created_at']);
+            return (a['created_at'] ?? '').toString().compareTo((b['created_at'] ?? '').toString());
           });
           return filtered;
         });
   }
 
+  // [UPDATE 2026-06-11-NOFLICKER] Filter server-side by receiver so this
+  // notification stream only fires for messages addressed to me, instead of
+  // re-emitting the whole table on every app-wide change.
   Stream<List<Map<String, dynamic>>> streamIncomingMessages(String userId) {
     return _client
         .from('messages')
         .stream(primaryKey: ['id'])
+        .eq('receiver_id', userId)
         .order('created_at', ascending: true)
         .map((data) {
           final filtered = data
@@ -885,9 +908,13 @@ class SupabaseService {
       return;
     }
 
+    // [UPDATE 2026-06-11-NOFLICKER] Filter server-side by receiver (me) so we
+    // only get typing rows addressed to us — not the whole table on every
+    // keystroke from every user.
     yield* _client
         .from('typing_events')
         .stream(primaryKey: ['sender_id', 'receiver_id'])
+        .eq('receiver_id', me.id)
         .map((rows) {
           final filtered = rows.where((r) =>
             r['sender_id'] == otherUserId && r['receiver_id'] == me.id

@@ -105,6 +105,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   // ── SMOOTH SCROLL FIX: Track previous message count ──
   // Only auto-scroll when NEW messages arrive, not on every rebuild
   int _previousMessageCount = 0;
+  // [UPDATE 2026-06-11-NOBOUNCE] Track the newest message timestamp so we only
+  // auto-scroll for a genuinely newer message, never on read-receipt/reaction
+  // updates or pending↔confirmed swaps (which keep the chat from rebounding).
+  String _lastNewestTimestamp = '';
   bool _isNearBottom = true; // Track if user scrolled up
   // [UPDATE 2026-06-11-NOBOUNCE] Whether we've done the one-time "open already
   // at the bottom" jump. The very first time messages load we jump (no
@@ -126,11 +130,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
       otherUserId: widget.otherUser['id'],
     );
 
+    // [UPDATE 2026-06-11-NOFLICKER] Only rebuild on a MEANINGFUL audio state
+    // change (play ↔ pause ↔ complete). The old code called setState() on EVERY
+    // player event (including buffering/position ticks), which rebuilt the
+    // entire screen — including the whole message list — many times a second
+    // while a voice note played, causing visible flicker and lag.
+    bool _lastAudioPlaying = false;
     _audioPlayer.playerStateStream.listen((state) {
       if (!mounted) return;
       if (state.processingState == ProcessingState.completed) {
-        setState(() => _currentlyPlayingMessageId = null);
-      } else {
+        if (_currentlyPlayingMessageId != null || _lastAudioPlaying) {
+          _lastAudioPlaying = false;
+          setState(() => _currentlyPlayingMessageId = null);
+        }
+        return;
+      }
+      if (state.playing != _lastAudioPlaying) {
+        _lastAudioPlaying = state.playing;
         setState(() {});
       }
     });
@@ -245,6 +261,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
           '${date.year}';
     }
 
+    // [UPDATE 2026-06-11-LIGHTFIX] Theme-aware day separator. The old pill was
+    // always a dark translucent chip with white text — fine on the dark chat
+    // wallpaper, but a dark blob with hard-to-read text on the light beige
+    // background. Light mode now uses WhatsApp's soft white pill with dark text.
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color pillBg = isDark ? Colors.black.withOpacity(0.35) : Colors.white;
+    final Color pillText = isDark ? Colors.white70 : const Color(0xFF54656F);
+    final Color pillBorder = isDark ? Colors.white10 : const Color(0x14000000);
+
     return Padding(
       key: key,
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -252,13 +277,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.35),
+            color: pillBg,
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: pillBorder),
+            boxShadow: isDark
+                ? null
+                : const [BoxShadow(color: Color(0x10000000), blurRadius: 2, offset: Offset(0, 1))],
           ),
           child: Text(
             label,
-            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+            style: GoogleFonts.poppins(color: pillText, fontSize: 11, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -1667,8 +1695,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
               child: StreamBuilder<Map<String, dynamic>>(
                 stream: _supabaseService.streamProfile(widget.otherUser['id']),
                 builder: (context, snapshot) {
+                  // [UPDATE 2026-06-11-LIGHTFIX] Theme-aware status colors.
+                  // The old code used Colors.white54 for "Last seen" which was
+                  // invisible on the LIGHT app-bar (the user's complaint). In
+                  // light mode we now use WhatsApp's muted grey-blue for last
+                  // seen, a dark-green for Online, and a readable grey for
+                  // Offline. Dark mode keeps the original bright accents.
+                  final bool lightHeader = !isDark;
+                  final Color onlineColor =
+                      lightHeader ? const Color(0xFF008069) : Colors.greenAccent;
+                  final Color offlineColor =
+                      lightHeader ? const Color(0xFF667781) : Colors.redAccent;
+                  final Color lastSeenColor =
+                      lightHeader ? const Color(0xFF667781) : Colors.white70;
+                  final Color typingColor =
+                      lightHeader ? const Color(0xFF008069) : Colors.greenAccent;
+
                   String status = 'Offline';
-                  Color statusColor = Colors.redAccent;
+                  Color statusColor = offlineColor;
 
                   if (snapshot.hasData) {
                     final otherHideLastSeen = snapshot.data?['hide_last_seen'] == true;
@@ -1679,19 +1723,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                       // User hides last seen - just show Online/Offline without timestamp
                       if (lastSeen != null && now.difference(lastSeen).inMinutes < 2) {
                         status = 'Online';
-                        statusColor = Colors.greenAccent;
+                        statusColor = onlineColor;
                       } else {
                         status = 'Offline';
-                        statusColor = Colors.redAccent;
+                        statusColor = offlineColor;
                       }
                     } else if (lastSeen != null) {
                       // User shows last seen - show exact time
                       if (now.difference(lastSeen).inMinutes < 2) {
                         status = 'Online';
-                        statusColor = Colors.greenAccent;
+                        statusColor = onlineColor;
                       } else {
                         status = 'Last seen ${_formatLastSeen(lastSeen)}';
-                        statusColor = Colors.white54;
+                        statusColor = lastSeenColor;
                       }
                     }
                   }
@@ -1712,7 +1756,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                           _isTyping ? 'Typing...' : status,
                           style: TextStyle(
                             fontSize: 12,
-                            color: _isTyping ? Colors.redAccent : statusColor,
+                            color: _isTyping ? typingColor : statusColor,
                           ),
                           maxLines: 1,
                         ),
@@ -1871,10 +1915,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                 _debouncedMarkAsRead(messages);
                 _debouncedSyncToLocal(messages);
 
-                // Only auto-scroll when NEW messages arrive.
-                if (messages.length > _previousMessageCount) {
-                  _previousMessageCount = messages.length;
-                  _scrollToBottom();
+                // [UPDATE 2026-06-11-NOBOUNCE] Auto-scroll ONLY when a genuinely
+                // newer message arrives (by created_at), not on every rebuild or
+                // when the count merely fluctuates as a pending bubble is swapped
+                // for its confirmed copy. Tracking the newest timestamp (instead
+                // of list length) means read-receipt/reaction updates never yank
+                // the viewport — so the chat never rebounds to the bottom while
+                // the user is reading or typing. _scrollToBottom() itself still
+                // respects _isNearBottom, so a user scrolled up is left alone.
+                final String newestTs = messages.isEmpty
+                    ? ''
+                    : (messages.last['created_at'] ?? '').toString();
+                if (newestTs.isNotEmpty && newestTs != _lastNewestTimestamp) {
+                  final bool hadPrevious = _lastNewestTimestamp.isNotEmpty;
+                  _lastNewestTimestamp = newestTs;
+                  if (hadPrevious) _scrollToBottom();
                 }
 
                 // [UPDATE 2026-06-11-TELEGRAM] Render NEWEST-first. The ListView
@@ -1996,14 +2051,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   /// double-stream lag.
 
   Widget _buildReplyPreview() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color barBg = isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFE8EBED);
+    final Color titleColor = const Color(0xFF008069);
+    final Color bodyColor = isDark ? Colors.white54 : const Color(0xFF54656F);
+    final Color closeColor = isDark ? Colors.white38 : const Color(0xFF667781);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.white.withOpacity(0.05),
+      color: barBg,
       child: Row(
         children: [
           Container(
             width: 3, height: 36,
-            decoration: BoxDecoration(color: const Color(0xFF6366F1), borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(color: const Color(0xFF008069), borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -2012,20 +2072,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
               children: [
                 Text(
                   _replyToMessage!['sender_id'] == widget.currentUser['id'] ? 'You' : (widget.otherUser['display_name'] ?? 'User'),
-                  style: GoogleFonts.poppins(color: const Color(0xFF6366F1), fontSize: 12, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.poppins(color: titleColor, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 Text(
                   (_replyToMessage!['content'] ?? '').toString().isEmpty
                       ? '[Media]'
                       : (_replyToMessage!['content'] ?? '').toString(),
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(color: Colors.white54, fontSize: 12),
+                  style: GoogleFonts.poppins(color: bodyColor, fontSize: 12),
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 18),
+            icon: Icon(Icons.close_rounded, color: closeColor, size: 18),
             onPressed: () => setState(() => _replyToMessage = null),
           ),
         ],
@@ -2034,11 +2094,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   }
 
   Widget _buildEditPreview() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color barBg = isDark ? const Color(0xFF2AABEE).withOpacity(0.1) : const Color(0xFFE8EBED);
+    final Color bodyColor = isDark ? Colors.white54 : const Color(0xFF54656F);
+    final Color closeColor = isDark ? Colors.white38 : const Color(0xFF667781);
     final createdAt = DateTime.tryParse((_editingMessage!['created_at'] ?? '').toString());
     final remaining = createdAt != null ? 20 - DateTime.now().difference(createdAt).inMinutes : 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: const Color(0xFF2AABEE).withOpacity(0.1),
+      color: barBg,
       child: Row(
         children: [
           Container(
@@ -2056,13 +2120,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                 ),
                 Text(
                   '${remaining > 0 ? remaining : 0} min remaining to edit',
-                  style: GoogleFonts.poppins(color: Colors.white54, fontSize: 11),
+                  style: GoogleFonts.poppins(color: bodyColor, fontSize: 11),
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 18),
+            icon: Icon(Icons.close_rounded, color: closeColor, size: 18),
             onPressed: () {
               setState(() {
                 _editingMessage = null;
@@ -2145,17 +2209,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
       bottomLeft: isMe ? const Radius.circular(22) : const Radius.circular(6),
     );
 
+    // [UPDATE 2026-06-11-LIGHTFIX] In LIGHT mode the outgoing bubble is a pale
+    // green (#D9FDD3). The old code used white-ish colors (white60/white54/
+    // white38) for the reply box, timestamp, "edited" label and ticks on my
+    // OWN bubble — which are invisible on pale green (the user's "reply chat is
+    // too bright, can't see what's there" + faint timestamps complaint). On a
+    // light bubble we now use WhatsApp's dark teal/grey so everything is
+    // perfectly readable. Dark mode keeps the original white-on-dark scheme.
     final replyBg = isMe
-        ? Colors.white.withOpacity(0.10)
+        ? (lightMode ? Colors.black.withOpacity(0.06) : Colors.white.withOpacity(0.10))
         : (lightMode ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.10));
-final replyTextColor = isMe
-        ? Colors.white54
+    final replyTextColor = isMe
+        ? (lightMode ? const Color(0xFF54656F) : Colors.white54)
         : (lightMode ? Colors.grey.shade600 : Colors.white54);
-final tsColor = isMe
-        ? Colors.white60
+    final tsColor = isMe
+        ? (lightMode ? const Color(0xFF667781) : Colors.white60)
         : (lightMode ? Colors.grey.shade500 : Colors.white54);
-final editedColor = isMe
-        ? Colors.white38
+    final editedColor = isMe
+        ? (lightMode ? const Color(0xFF8696A0) : Colors.white38)
         : (lightMode ? Colors.grey.shade400 : Colors.white24);
 
     Widget bubbleContent = Column(
@@ -2302,10 +2373,12 @@ final editedColor = isMe
                     color = const Color(0xFF2AABEE); // blue
                   } else if (isDelivVal) {
                     icon = Icons.done_all_rounded;
-                    color = Colors.white60; // double gray
+                    // [UPDATE 2026-06-11-LIGHTFIX] gray ticks must be dark on the
+                    // pale-green outgoing bubble in light mode (white was invisible).
+                    color = lightMode ? const Color(0xFF8696A0) : Colors.white60; // double gray
                   } else {
                     icon = Icons.done_rounded; // single gray
-                    color = Colors.white38;
+                    color = lightMode ? const Color(0xFF9AA6AD) : Colors.white38;
                   }
 
                   return Icon(icon, size: 14, color: color);
