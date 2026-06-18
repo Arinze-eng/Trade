@@ -1444,7 +1444,6 @@ private fun InlineActivityTrail(
 }
 
 @Composable
-@Composable
 private fun InlineActivityStep(step: ActivityStepItem) {
     var expanded by remember(step.running) { mutableStateOf(step.running) }
     
@@ -1509,6 +1508,17 @@ private fun InlineActivityStep(step: ActivityStepItem) {
             }
         }
         AnimatedVisibility(visible = expanded) {
+            if (step.detail.isNotBlank()) {
+                Text(
+                    text = step.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun PremiumInputBar(
