@@ -81,19 +81,24 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      # --- Signing & Release Build (optional) ---
+      # --- Signing & Release Build (only when keystore secret exists) ---
+      - name: 🔐 Check if keystore is available
+        id: check_keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
       - name: 🔐 Decode Keystore
-        id: decode_keystore
-        if: |
-          github.event_name != 'pull_request' &&
-          ( startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' ) &&
-          secrets.KEYSTORE_BASE64 != ''
+        if: steps.check_keystore.outputs.available == 'true'
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
-          echo "keystore_exists=true" >> $GITHUB_OUTPUT
 
       - name: 🏗️ Build Release APK (signed)
-        if: steps.decode_keystore.outputs.keystore_exists == 'true'
+        if: steps.check_keystore.outputs.available == 'true'
         run: |
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=app/keystore.jks \
@@ -103,7 +108,7 @@ jobs:
             --no-daemon --stacktrace
 
       - name: 📤 Upload Release APK
-        if: steps.decode_keystore.outputs.keystore_exists == 'true'
+        if: steps.check_keystore.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ClawDroid-Release-${{ github.sha }}
