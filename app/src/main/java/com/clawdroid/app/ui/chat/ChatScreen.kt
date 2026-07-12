@@ -1494,7 +1494,7 @@ private fun InlineActivityStep(step: ActivityStepItem) {
             }
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = formatDiffDisplayText("$" + "{step.summary}" + "$" + "{if (step.running) "\u2026" else ""}"),
+                text = formatDiffDisplayText("${step.summary}${if (step.running) "\u2026" else ""}"),
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),

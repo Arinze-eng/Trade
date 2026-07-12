@@ -60,10 +60,14 @@ class LlmApiClient(
         tools: JSONArray? = null,
         forcedToolName: String? = null,
     ): Flow<StreamEvent> {
-        return if (isAnthropicProvider()) {
-            streamAnthropicChat(messages, tools, forcedToolName)
-        } else {
-            streamOpenAiChat(messages, tools, forcedToolName)
+        return when {
+            // Inbuilt keyless FUSION brain (HotBot/Gemini/racers) — no API key needed.
+            FusionLlmClient.isFusion(baseUrl, provider) ->
+                FusionLlmClient().streamChat(messages, tools, forcedToolName)
+            isAnthropicProvider() ->
+                streamAnthropicChat(messages, tools, forcedToolName)
+            else ->
+                streamOpenAiChat(messages, tools, forcedToolName)
         }
     }
 

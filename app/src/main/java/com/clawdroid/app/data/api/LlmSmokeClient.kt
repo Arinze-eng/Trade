@@ -1,6 +1,7 @@
 package com.clawdroid.app.data.api
 
 import com.clawdroid.app.BuildConfig
+import com.clawdroid.app.core.config.AppConfigManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
@@ -16,12 +17,24 @@ data class ModelTestResult(
 
 object LlmSmokeClient {
     suspend fun runSmokeTest(): ModelTestResult = withContext(Dispatchers.IO) {
-        val baseUrl = BuildConfig.LLM_BASE_URL.trimEnd('/')
-        val apiKey = BuildConfig.LLM_API_KEY
-        val model = BuildConfig.LLM_MODEL
+        // Route through AppConfigManager so the inbuilt keyless FUSION brain
+        // (or any user-configured provider) is honoured. Falls back to the
+        // effective config rather than raw BuildConfig, which may be blank when
+        // the inbuilt FUSION brain is active.
+        val baseUrl = AppConfigManager.baseUrl.trimEnd('/')
+        val apiKey = AppConfigManager.apiKey
+        val model = AppConfigManager.model
+        val provider = AppConfigManager.provider
         check(baseUrl.isNotBlank()) { "Missing LLM base URL" }
-        check(apiKey.isNotBlank()) { "Missing LLM API key" }
         check(model.isNotBlank()) { "Missing LLM model" }
+
+        // Inbuilt FUSION brain has no /chat/completions endpoint — use the
+        // FUSION-aware streaming client for the smoke test instead.
+        if (FusionLlmClient.isFusion(baseUrl, provider)) {
+            return@withContext runStreamingSmokeTest()
+        }
+
+        check(apiKey.isNotBlank()) { "Missing LLM API key" }
 
         val payload = JSONObject()
             .put("model", model)

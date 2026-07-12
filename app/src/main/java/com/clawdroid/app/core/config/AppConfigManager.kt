@@ -29,31 +29,58 @@ object AppConfigManager {
 
     private val p: SharedPreferences get() = prefs!!
 
-    const val DEV_MODE = true
-    private const val DEV_API_KEY = "sk-pkuyklgbgcdqyezsehpvachsgyadwgghnplflashqjlysmwu"
+    const val DEV_MODE = false
+    private const val DEV_API_KEY = ""
+
+    // ── INBUILT FUSION BRAIN (keyless HotBot/Gemini/racers) ─────────────────
+    // The app ships with a powerful inbuilt LLM that needs NO API key. Users
+    // can still enter their own API key / custom endpoint in Settings to
+    // override it — user-saved values always take precedence below.
+    const val FUSION_PROVIDER = "fusion"
+    const val FUSION_BASE_URL = "https://gemini-gateway.huymq-it.workers.dev"
+    const val FUSION_MODEL = "fusion-gemini-3.1"
 
     val baseUrl: String
         get() = p.getString(KEY_BASE_URL, null)
             ?.takeIf { it.isNotBlank() }
-            ?: if (DEV_MODE) "https://api.siliconflow.com/v1" else BuildConfig.LLM_BASE_URL.trimEnd('/').takeIf { it.isNotBlank() } ?: "https://openrouter.ai/api/v1"
+            ?: BuildConfig.LLM_BASE_URL.trimEnd('/').takeIf { it.isNotBlank() && it != "https://api.example.com" }
+            ?: FUSION_BASE_URL
 
     val apiKey: String
         get() = p.getString(KEY_API_KEY, null)
             ?.takeIf { it.isNotBlank() }
-            ?: if (DEV_MODE) DEV_API_KEY else BuildConfig.LLM_API_KEY.takeIf { it.isNotBlank() } ?: ""
+            ?: BuildConfig.LLM_API_KEY.takeIf { it.isNotBlank() }
+            // Inbuilt FUSION brain is keyless — a placeholder keeps callers happy.
+            ?: if (isUsingFusion) "inbuilt-fusion" else ""
 
     val model: String
         get() = p.getString(KEY_MODEL, null)
             ?.takeIf { it.isNotBlank() }
-            ?: if (DEV_MODE) "moonshotai/Kimi-K2.6" else BuildConfig.LLM_MODEL.takeIf { it.isNotBlank() } ?: "openai/gpt-4o"
+            ?: BuildConfig.LLM_MODEL.takeIf { it.isNotBlank() && it != "placeholder" }
+            ?: FUSION_MODEL
 
     val provider: String
         get() = p.getString(KEY_PROVIDER, null)
             ?.takeIf { it.isNotBlank() }
-            ?: if (DEV_MODE) "siliconflow" else "openrouter"
+            ?: BuildConfig.LLM_PROVIDER.takeIf { it.isNotBlank() && it != "none" }
+            ?: FUSION_PROVIDER
+
+    /** True when neither the user nor the build has overridden the inbuilt brain. */
+    val isUsingFusion: Boolean
+        get() {
+            val savedProvider = p.getString(KEY_PROVIDER, null)?.takeIf { it.isNotBlank() }
+            val savedBase = p.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() }
+            if (savedProvider != null || savedBase != null) {
+                return (savedProvider ?: "").equals(FUSION_PROVIDER, ignoreCase = true) ||
+                    (savedBase ?: "").contains("gemini-gateway", ignoreCase = true)
+            }
+            val buildProvider = BuildConfig.LLM_PROVIDER.takeIf { it.isNotBlank() && it != "none" }
+            val buildBase = BuildConfig.LLM_BASE_URL.takeIf { it.isNotBlank() && it != "https://api.example.com" }
+            return buildProvider == null && buildBase == null
+        }
 
     val isConfigured: Boolean
-        get() = apiKey.isNotBlank()
+        get() = isUsingFusion || apiKey.isNotBlank()
 
     val isOnboardingComplete: Boolean
         get() = p.getBoolean(KEY_ONBOARDING_COMPLETE, false)
