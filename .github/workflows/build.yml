@@ -62,6 +62,10 @@ jobs:
           NOTION_OAUTH_CLIENT_SECRET=${{ secrets.NOTION_CLIENT_SECRET || '' }}
           SPOTIFY_OAUTH_CLIENT_ID=${{ secrets.SPOTIFY_CLIENT_ID || '' }}
           SPOTIFY_OAUTH_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET || '' }}
+          CLOUDFLARE_ACCOUNT_ID=${{ secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+          CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN || '' }}
+          NOVITA_API_KEY=${{ secrets.NOVITA_API_KEY || '' }}
+          STUDENTAI_ANON_KEY=${{ secrets.STUDENTAI_ANON_KEY || '' }}
           LOCALEOF
           echo "✅ local.properties created"
 

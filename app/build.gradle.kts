@@ -48,6 +48,12 @@ android {
         val spotifyClientId = localProperties.getProperty("SPOTIFY_OAUTH_CLIENT_ID") ?: ""
         val spotifyClientSecret = localProperties.getProperty("SPOTIFY_OAUTH_CLIENT_SECRET") ?: ""
 
+        // Optional FUSION racer / image-gen credentials (keyless by default).
+        val cfAccountId = localProperties.getProperty("CLOUDFLARE_ACCOUNT_ID") ?: ""
+        val cfApiToken = localProperties.getProperty("CLOUDFLARE_API_TOKEN") ?: ""
+        val novitaApiKey = localProperties.getProperty("NOVITA_API_KEY") ?: ""
+        val studentAiKey = localProperties.getProperty("STUDENTAI_ANON_KEY") ?: ""
+
         buildConfigField("String", "LLM_BASE_URL", llmBaseUrl.asBuildConfigString())
         buildConfigField("String", "LLM_MODEL", llmModel.asBuildConfigString())
         buildConfigField("String", "LLM_API_KEY", llmApiKey.asBuildConfigString())
@@ -61,6 +67,10 @@ android {
         buildConfigField("String", "NOTION_OAUTH_CLIENT_SECRET", notionClientSecret.asBuildConfigString())
         buildConfigField("String", "SPOTIFY_OAUTH_CLIENT_ID", spotifyClientId.asBuildConfigString())
         buildConfigField("String", "SPOTIFY_OAUTH_CLIENT_SECRET", spotifyClientSecret.asBuildConfigString())
+        buildConfigField("String", "CLOUDFLARE_ACCOUNT_ID", cfAccountId.asBuildConfigString())
+        buildConfigField("String", "CLOUDFLARE_API_TOKEN", cfApiToken.asBuildConfigString())
+        buildConfigField("String", "NOVITA_API_KEY", novitaApiKey.asBuildConfigString())
+        buildConfigField("String", "STUDENTAI_ANON_KEY", studentAiKey.asBuildConfigString())
     }
 
     buildFeatures {

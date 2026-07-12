@@ -82,6 +82,25 @@ object ToolExecutor {
             "list_directory" -> ListDirectoryTool.execute(context, args.getString("path"))
             "browse_web" -> BrowseWebTool.execute(args.getString("url"))
             "web_search" -> WebSearchTool.execute(args.getString("query"))
+            "generate_image" -> com.clawdroid.app.core.tools.ImageGenTools.generate(
+                context = context,
+                prompt = args.getString("prompt"),
+                width = args.optInt("width", 1024),
+                height = args.optInt("height", 1024),
+                outPath = args.optString("path").takeIf { it.isNotBlank() },
+            )
+            "ocr_extract" -> com.clawdroid.app.core.tools.OcrTools.extract(
+                context = context,
+                path = args.getString("path"),
+                cwd = args.optString("cwd").takeIf { it.isNotBlank() },
+                maxChars = args.optInt("max_chars", 20000),
+            )
+            "extract_archive" -> com.clawdroid.app.core.tools.OcrTools.unpack(
+                context = context,
+                path = args.getString("path"),
+                dest = args.optString("dest").takeIf { it.isNotBlank() },
+                cwd = args.optString("cwd").takeIf { it.isNotBlank() },
+            )
             "send_notification" -> NotificationTool.execute(
                 context = context,
                 title = args.getString("title"),
@@ -275,11 +294,19 @@ object ToolExecutor {
         args: JSONObject,
         onProgress: (suspend (String) -> Unit)?,
     ): JSONObject {
+        val command = args.getString("command")
+        // Sandbox is a real Linux env — long installs/builds must not be cut off
+        // at 30s. If the model didn't set a timeout, auto-extend for commands that
+        // are known to take a while (package installs, scans, builds, downloads).
+        val explicit = if (args.has("timeout_seconds") && !args.isNull("timeout_seconds")) {
+            args.optLong("timeout_seconds", 0).takeIf { it > 0 }
+        } else null
+        val timeout = explicit ?: inferTimeoutSeconds(command)
         val result = CommandTool.execute(
             context = context,
-            command = args.getString("command"),
+            command = command,
             cwd = args.optString("cwd").takeIf { it.isNotBlank() },
-            timeoutSeconds = args.optLong("timeout_seconds", 30),
+            timeoutSeconds = timeout,
             onProgress = onProgress,
         )
 
@@ -287,6 +314,20 @@ object ToolExecutor {
             .put("exit_code", result.exitCode)
             .put("output", result.output)
     }
+
+    /** Heuristic default timeout (seconds) for commands with no explicit timeout. */
+    private fun inferTimeoutSeconds(command: String): Long {
+        val c = command.lowercase()
+        val longPatterns = listOf(
+            "apt-get", "apt ", "pkg install", "pkg update", "dpkg",
+            "nmap", "pip install", "pip3 install", "npm install", "npm i ",
+            "yarn", "pnpm", "git clone", "make", "cmake", "gcc", "g++",
+            "cargo build", "go build", "gradle", "./configure", "ffmpeg",
+            "wget", "curl -o", "tar -x", "unzip", "tesseract", "pdftoppm",
+        )
+        return if (longPatterns.any { c.contains(it) }) 300L else 60L
+    }
+
 
     private fun JSONObject.optIntOrNull(name: String): Int? = if (has(name) && !isNull(name)) optInt(name) else null
 

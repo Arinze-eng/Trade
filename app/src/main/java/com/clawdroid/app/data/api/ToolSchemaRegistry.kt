@@ -85,10 +85,10 @@ object ToolSchemaRegistry {
     fun allTools(): JSONArray {
         val array = JSONArray()
 
-        array.put(tool("execute_command", "Run a short shell command and wait for completion.") {
-            putString("command", "Command to run via bash -c.")
+        array.put(tool("execute_command", "Run any shell command in the full Linux sandbox and wait for completion. Supports bash, grep, apt/pkg install, nmap, curl, python, node, git, unzip, ffmpeg, and building from source — anything a real Linux terminal can do. Long installs/builds are auto-given more time; use start_process for servers/daemons.") {
+            putString("command", "Command to run via bash -c. Full shell features (pipes, &&, subshells, apt install) are supported.")
             putString("cwd", "Working directory inside the sandbox.")
-            putInteger("timeout_seconds", "Maximum time to wait before returning.")
+            putInteger("timeout_seconds", "Maximum seconds to wait. Auto-extended for installs/builds if omitted.")
             required("command", "cwd")
         })
         array.put(tool("start_process", "Start a long-running shell command and return a process id.") {
@@ -141,6 +141,25 @@ object ToolSchemaRegistry {
         array.put(tool("web_search", "Search the web and return relevant results.") {
             putString("query", "Search query.")
             required("query")
+        })
+        array.put(tool("generate_image", "Generate an image from a text prompt (Cloudflare Workers AI flux, or keyless Pollinations fallback). Saves a PNG into the workspace and returns its path.") {
+            putString("prompt", "Detailed description of the image to generate.")
+            putInteger("width", "Image width in pixels. Default 1024.")
+            putInteger("height", "Image height in pixels. Default 1024.")
+            putString("path", "Optional output path (workspace-relative or absolute). Auto-named if omitted.")
+            required("prompt")
+        })
+        array.put(tool("ocr_extract", "Extract text from a file the model cannot read directly: PDF (text layer or OCR), scanned images (PNG/JPG/etc via OCR), Office docs, or list a ZIP/archive. Auto-installs OCR tools in the sandbox. Use this to READ any uploaded file before answering.") {
+            putString("path", "Absolute or sandbox-relative path to the file.")
+            putString("cwd", "Optional working directory.")
+            putInteger("max_chars", "Max characters of text to return. Default 20000.")
+            required("path")
+        })
+        array.put(tool("extract_archive", "Extract a ZIP/TAR/GZ/Office archive into a folder in the sandbox so its files can be processed, then list the extracted files.") {
+            putString("path", "Absolute or sandbox-relative path to the archive.")
+            putString("dest", "Optional destination directory. Defaults to <name>_extracted.")
+            putString("cwd", "Optional working directory.")
+            required("path")
         })
         array.put(tool("send_notification", "Send a concise user notification.") {
             putString("title", "Notification title.")

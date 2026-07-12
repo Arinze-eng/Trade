@@ -80,6 +80,15 @@ class ChatViewModel(
     private var isListening = false
     private var listenTrigger = 0
 
+    // ── Streaming coalescing (performance / battery / data) ─────────────────
+    // TextDeltas can arrive very frequently; applying uiState.copy() per token
+    // recomposes the whole chat list and drains CPU/battery. We buffer deltas
+    // and flush them to the UI on a fixed cadence so the stream stays smooth
+    // without thrashing recomposition.
+    private val streamBuffer = StringBuilder()
+    private var flusherJob: Job? = null
+    private val streamFlushIntervalMs = 60L
+
     private val voiceManager: VoiceManager by lazy { appContainer.getVoiceManager() }
     private val voiceRecognizer: SpeechRecognizerClient by lazy { appContainer.getSpeechRecognizer() }
 
@@ -256,6 +265,8 @@ class ChatViewModel(
                 orbState = OrbState.Thinking,
                 thinkingPhase = "Analyzing",
             )
+            // Start the batched streaming flusher (perf: coalesce token updates).
+            startFlusher()
             
             // Rotate thinking phrases while agent is processing but no output yet
             val thinkingPhrases = listOf(
@@ -296,10 +307,9 @@ class ChatViewModel(
                     newEngine.run(text, maxTurns = AppConfigManager.maxAgentTurns).collect { event ->
                         when (event) {
                             is AgentRunEvent.TextDelta -> {
-                                uiState = uiState.copy(
-                                    streamingText = uiState.streamingText + event.text,
-                                    agentResponseText = uiState.agentResponseText + event.text,
-                                )
+                                // Coalesce: buffer the delta; the flusher applies
+                                // it to uiState on a fixed cadence (see startFlusher).
+                                synchronized(streamBuffer) { streamBuffer.append(event.text) }
                             }
 
                             is AgentRunEvent.ToolCallRequested -> {
@@ -378,6 +388,9 @@ class ChatViewModel(
     }
 
     private suspend fun finalizeStreaming(finalText: String) {
+        // Ensure any buffered stream text is applied before we snapshot/persist.
+        stopFlusher()
+        flushStreamBuffer()
         val msgId = uiState.streamingMessageId ?: UUID.randomUUID().toString()
         val convId = uiState.currentConversationId ?: return
 
@@ -412,6 +425,39 @@ class ChatViewModel(
             streamingMessageId = null,
             runtimeState = AgentRuntimeState.Idle,
         )
+    }
+
+    /** Apply any buffered streaming text to uiState in one batched update. */
+    private fun flushStreamBuffer() {
+        val chunk = synchronized(streamBuffer) {
+            if (streamBuffer.isEmpty()) return
+            val s = streamBuffer.toString()
+            streamBuffer.setLength(0)
+            s
+        }
+        uiState = uiState.copy(
+            streamingText = uiState.streamingText + chunk,
+            agentResponseText = uiState.agentResponseText + chunk,
+        )
+    }
+
+    /** Start the periodic flusher that coalesces streaming deltas into the UI. */
+    private fun startFlusher() {
+        stopFlusher()
+        synchronized(streamBuffer) { streamBuffer.setLength(0) }
+        flusherJob = viewModelScope.launch {
+            while (uiState.isStreaming) {
+                delay(streamFlushIntervalMs)
+                flushStreamBuffer()
+            }
+            // Final flush after streaming ends.
+            flushStreamBuffer()
+        }
+    }
+
+    private fun stopFlusher() {
+        flusherJob?.cancel()
+        flusherJob = null
     }
 
     private fun processCommand(text: String) {
