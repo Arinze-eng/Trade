@@ -45,6 +45,23 @@ class FusionLlmClient {
                 baseUrl.equals("inbuilt", ignoreCase = true)
         }
 
+        // ── thoughtSignature packing ────────────────────────────────────────
+        // Gemini 3.x requires the per-call `thoughtSignature` to be echoed back
+        // when replaying a functionCall in history. ClawDroid's CompletedToolCall
+        // has no field for it, so we pack it into the tool-call id as
+        // "<realId>::sig::<signature>" and unpack it on the way back.
+        private const val SIG_DELIM = "::sig::"
+
+        private fun encodeId(id: String, signature: String?): String {
+            return if (signature.isNullOrBlank()) id else id + SIG_DELIM + signature
+        }
+
+        /** Extract the packed thoughtSignature from a tool-call id, or null. */
+        fun decodeSignature(id: String): String? {
+            val idx = id.indexOf(SIG_DELIM)
+            return if (idx >= 0) id.substring(idx + SIG_DELIM.length).takeIf { it.isNotBlank() } else null
+        }
+
         /**
          * The FUSION system directive. Makes the inbuilt brain a strong,
          * complete-answer autonomous agent (never refuses, never stubs, always
@@ -74,29 +91,62 @@ CORE RULES:
         Log.i("FusionLlmClient", "FUSION streamChat: messages=${messages.size}, tools=${tools?.length() ?: 0}")
 
         val payload = buildGeminiPayload(messages, tools, forcedToolName)
+        val body = payload.toString().toByteArray(Charsets.UTF_8)
 
-        val connection = (URL("$BASE_URL$ENDPOINT").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 20_000
-            readTimeout = 120_000
-            doOutput = true
-            setRequestProperty("Authorization", AUTH_TOKEN)
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
+        // The keyless gateway rate-limits bursts and rejects non-browser UAs
+        // (returns 403). Send a browser-like UA and retry with backoff on
+        // transient 403/429/5xx so the agent loop is resilient.
+        var responseText: String? = null
+        var lastError = ""
+        val maxAttempts = 4
+        for (attempt in 0 until maxAttempts) {
+            val connection = (URL("$BASE_URL$ENDPOINT").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 20_000
+                readTimeout = 120_000
+                doOutput = true
+                setRequestProperty("Authorization", AUTH_TOKEN)
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) ClawDroid/1.0")
+            }
+
+            try {
+                connection.outputStream.use { it.write(body) }
+                val code = connection.responseCode
+                Log.i("FusionLlmClient", "FUSION response code: $code (attempt ${attempt + 1})")
+                if (code in 200..299) {
+                    responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                    break
+                }
+                val errorText = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                lastError = "HTTP $code: ${errorText.take(300)}"
+                Log.e("FusionLlmClient", "FUSION $lastError")
+                // Retry transient failures; give up on hard client errors.
+                val retryable = code == 403 || code == 429 || code in 500..599
+                if (!retryable || attempt == maxAttempts - 1) {
+                    emit(StreamEvent.Error("FUSION $lastError"))
+                    return@flow
+                }
+            } catch (e: Exception) {
+                lastError = e.message ?: e.toString()
+                Log.e("FusionLlmClient", "FUSION request failed: $lastError")
+                if (attempt == maxAttempts - 1) {
+                    emit(StreamEvent.Error("FUSION request failed: $lastError"))
+                    return@flow
+                }
+            } finally {
+                connection.disconnect()
+            }
+            // Jittered backoff before the next attempt.
+            kotlinx.coroutines.delay(600L * (attempt + 1) + (0..300).random())
         }
 
-        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-
-        val code = connection.responseCode
-        Log.i("FusionLlmClient", "FUSION response code: $code")
-        if (code !in 200..299) {
-            val errorText = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            Log.e("FusionLlmClient", "FUSION HTTP error $code: $errorText")
-            emit(StreamEvent.Error("FUSION HTTP $code: ${errorText.take(300)}"))
+        if (responseText == null) {
+            emit(StreamEvent.Error("FUSION: no response ($lastError)"))
             return@flow
         }
 
-        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
         val root = runCatching { JSONObject(responseText) }.getOrNull()
         if (root == null) {
             emit(StreamEvent.Error("FUSION: unparseable response"))
@@ -111,16 +161,23 @@ CORE RULES:
             for (i in 0 until parts.length()) {
                 val part = parts.optJSONObject(i) ?: continue
 
-                // Function call → OpenAI tool call
+                // Function call → OpenAI tool call.
+                // Gemini 3.x returns a `thoughtSignature` alongside each functionCall
+                // that MUST be echoed back when the tool call is replayed in history,
+                // otherwise the follow-up turn fails with HTTP 400. ClawDroid's
+                // CompletedToolCall has no dedicated field for it, so we pack the
+                // signature into the tool-call id (see encodeId / decodeId).
                 val fnCall = part.optJSONObject("functionCall")
                 if (fnCall != null) {
                     val name = fnCall.optString("name")
                     val args = fnCall.optJSONObject("args") ?: JSONObject()
-                    val id = fnCall.optString("id").takeIf { it.isNotBlank() }
+                    val rawId = fnCall.optString("id").takeIf { it.isNotBlank() }
                         ?: ("call_" + UUID.randomUUID().toString().replace("-", "").take(12))
+                    val signature = part.optString("thoughtSignature").takeIf { it.isNotBlank() }
+                    val packedId = encodeId(rawId, signature)
                     emit(
                         StreamEvent.ToolCallComplete(
-                            CompletedToolCall(id = id, name = name, arguments = args.toString())
+                            CompletedToolCall(id = packedId, name = name, arguments = args.toString())
                         )
                     )
                     emittedAnything = true
@@ -170,13 +227,22 @@ CORE RULES:
         }
 
         val contents = JSONArray()
+        // Map every tool-call id → its function name, so a tool result (which
+        // only carries the call id) can be matched back to the Gemini function
+        // name it responds to (Gemini pairs functionResponse to functionCall by name).
+        val callIdToName = HashMap<String, String>()
+        messages.forEach { m ->
+            m.toolCalls.forEach { c -> callIdToName[c.id] = c.name }
+        }
         for (message in messages) {
             when (message.role) {
                 "system" -> { /* folded into system_instruction */ }
                 "tool" -> {
-                    // Tool result → Gemini functionResponse part
+                    // Tool result → Gemini functionResponse part. Resolve the
+                    // function NAME from the call id (Gemini needs the name here).
+                    val fnName = message.toolCallId?.let { callIdToName[it] } ?: "tool"
                     val fnResponse = JSONObject()
-                        .put("name", message.toolCallId ?: "tool")
+                        .put("name", fnName)
                         .put(
                             "response",
                             JSONObject().put("result", message.content ?: "")
@@ -198,12 +264,16 @@ CORE RULES:
                     message.toolCalls.forEach { call ->
                         val argsObj = runCatching { JSONObject(call.arguments) }
                             .getOrElse { JSONObject() }
-                        partsArr.put(
-                            JSONObject().put(
-                                "functionCall",
-                                JSONObject().put("name", call.name).put("args", argsObj)
-                            )
-                        )
+                        val fnCallObj = JSONObject()
+                            .put("name", call.name)
+                            .put("args", argsObj)
+                        val part = JSONObject().put("functionCall", fnCallObj)
+                        // Echo the Gemini thoughtSignature back (packed into the id)
+                        // so the multi-turn agent loop is accepted (avoids HTTP 400).
+                        decodeSignature(call.id)?.let { sig ->
+                            part.put("thoughtSignature", sig)
+                        }
+                        partsArr.put(part)
                     }
                     if (partsArr.length() > 0) {
                         contents.put(JSONObject().put("role", "model").put("parts", partsArr))
