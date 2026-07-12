@@ -7,7 +7,11 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            AutomationScheduler.schedule(context)
+            if (com.clawdroid.app.core.config.AppConfigManager.heartbeatEnabled) {
+                AutomationScheduler.schedule(context)
+            } else {
+                AutomationScheduler.cancel(context)
+            }
         }
     }
 }

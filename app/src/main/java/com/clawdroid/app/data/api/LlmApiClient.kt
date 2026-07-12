@@ -144,7 +144,6 @@ class LlmApiClient(
                 lines.forEach { line ->
                     if (!line.startsWith("data:")) return@forEach
                     val data = line.removePrefix("data:").trim()
-                    Log.d("LlmApiClient", "Received line: $line")
                     if (data == "[DONE]") {
                         toolCalls.values
                             .mapNotNull { it.buildOrNull() }

@@ -52,7 +52,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         NotificationHelper.ensureChannels(this)
-        AutomationScheduler.schedule(this)
+        if (AppConfigManager.heartbeatEnabled) {
+            AutomationScheduler.schedule(this)
+        } else {
+            AutomationScheduler.cancel(this)
+        }
 
         // Start Foreground Service if Ultra Agent Mode is enabled
         if (AppConfigManager.ultraAgentEnabled) {

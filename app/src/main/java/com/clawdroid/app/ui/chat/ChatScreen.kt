@@ -809,8 +809,13 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(items.size) {
-        if (items.isNotEmpty()) listState.animateScrollToItem(items.size)
+    LaunchedEffect(displayItems.size) {
+        if (displayItems.isEmpty()) return@LaunchedEffect
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        val shouldStickToBottom = lastVisibleIndex == -1 || lastVisibleIndex >= displayItems.lastIndex - 2
+        if (shouldStickToBottom) {
+            listState.scrollToItem(displayItems.lastIndex)
+        }
     }
 
     val density = LocalDensity.current
@@ -831,14 +836,15 @@ fun ChatScreen(
 
     LaunchedEffect(listState) {
         androidx.compose.runtime.snapshotFlow { keyboardHeight }
-            .collect { height ->
-                if (items.isNotEmpty()) {
+            .collect {
+                if (displayItems.isNotEmpty()) {
                     val layoutInfo = listState.layoutInfo
                     val visibleItems = layoutInfo.visibleItemsInfo
                     if (visibleItems.isNotEmpty()) {
-                        val isAtBottom = visibleItems.any { it.index >= items.size }
-                        if (isAtBottom) {
-                            listState.scrollToItem(items.size)
+                        val lastVisibleIndex = visibleItems.lastOrNull()?.index ?: -1
+                        val isNearBottom = lastVisibleIndex >= displayItems.lastIndex - 2
+                        if (isNearBottom) {
+                            listState.scrollToItem(displayItems.lastIndex)
                         }
                     }
                 }

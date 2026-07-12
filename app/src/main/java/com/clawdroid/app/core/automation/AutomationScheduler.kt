@@ -12,11 +12,16 @@ object AutomationScheduler {
     private const val WORK_NAME = "clawdroid_automation_tick"
 
     fun schedule(context: Context) {
+        if (!com.clawdroid.app.core.config.AppConfigManager.heartbeatEnabled) {
+            cancel(context)
+            return
+        }
         val interval = com.clawdroid.app.core.config.AppConfigManager.heartbeatIntervalMin.toLong().coerceAtLeast(15)
         val request = PeriodicWorkRequestBuilder<AutomationWorker>(interval, TimeUnit.MINUTES)
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiresBatteryNotLow(true)
                     .build()
             )
             .build()
