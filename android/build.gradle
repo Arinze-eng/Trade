@@ -1,17 +1,3 @@
-// Put the Android Gradle Plugin on the buildscript classpath so that
-// third-party Flutter plugins using the LEGACY `apply plugin: 'com.android.library'`
-// syntax (e.g. agora_rtc_engine) can resolve it.
-// Without this they fail with: "Plugin with id 'com.android.library' not found."
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.10.0'
-    }
-}
-
 allprojects {
     repositories {
         google()
