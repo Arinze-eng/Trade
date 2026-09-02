@@ -50,7 +50,12 @@ class _SplashScreenState extends State<SplashScreen>
         pageBuilder: (_, __, ___) => const AuthWrapper(),
         transitionDuration: const Duration(milliseconds: 500),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
+          // [FIX 2026-09-02] Dark-colored transition container so no white or
+          // brown flash leaks through between splash and auth.
+          return Container(
+            color: const Color(0xFF0A0E27),
+            child: FadeTransition(opacity: animation, child: child),
+          );
         },
       ),
     );

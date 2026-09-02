@@ -1,8 +1,5 @@
 <resources>
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <!-- [FIX 2026-09-02] Match the app's dark navy gradient exactly to
-             eliminate the brown flash between native launch and Flutter first
-             frame. -->
         <item name="android:windowBackground">@color/launch_background</item>
         <item name="android:statusBarColor">@color/launch_background</item>
         <item name="android:navigationBarColor">@color/launch_background</item>
@@ -14,7 +11,6 @@
         <item name="android:navigationBarColor">@color/launch_background</item>
     </style>
 
-    <!-- Image Cropper Theme -->
     <style name="Theme.ImageCropper" parent="Theme.AppCompat.NoActionBar">
         <item name="android:statusBarColor">#0A0E27</item>
         <item name="android:navigationBarColor">#0A0E27</item>

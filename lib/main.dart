@@ -129,6 +129,19 @@ class MyApp extends StatelessWidget {
       theme: ThemeProvider.darkTheme,
       darkTheme: ThemeProvider.darkTheme,
       themeMode: themeProvider.themeMode,
+      // [FIX 2026-09-02] Force a dark canvas on every route. Material 3's
+      // ColorScheme.fromSeed surface tint (purple seed) blended with the dark
+      // blue launch background rendered as an ugly BROWN flash during the
+      // splash → auth → chat transitions. This guarantees deep-navy everywhere.
+      builder: (context, child) {
+        return MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: Container(
+            color: const Color(0xFF0A0E27),
+            child: child,
+          ),
+        );
+      },
       // ── VPN Splash is the FIRST screen ──
       home: const VpnSplashScreen(),
     );

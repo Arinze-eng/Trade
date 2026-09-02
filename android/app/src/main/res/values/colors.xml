@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Match the app's gradient start color to eliminate brown flash -->
-    <color name="launch_background">#0F2027</color>
+    <!-- [FIX 2026-09-02] True dark navy matching the Flutter splash gradient
+         (0xFF0A0E27). The previous #0F2027 blended with Material-3 surface tint
+         into a brown flash on many devices. -->
+    <color name="launch_background">#0A0E27</color>
     <!-- Accent color for FCM default notification -->
     <color name="accent">#2AABEE</color>
 </resources>

@@ -26,15 +26,23 @@ class VpnManager extends ChangeNotifier {
   VpnManager._() {
     _statusSub = _service.vpnStatus.listen((e) {
       _lastStatus = Map<dynamic, dynamic>.from(e);
-      final state = (_lastStatus?['state'] ?? '').toString().toLowerCase();
-      if (state.contains('connected')) {
+      // [FIX 2026-09-02] Plugin emits "CONNECTED"/"DISCONNECTED" — and
+      // "disconnected".contains("connected") is TRUE. Check disconnection
+      // FIRST or _active gets stuck true after a failed tunnel, hanging the
+      // VPN splash for its full timeout (the long "Proceeding without VPN..."
+      // brown screen users reported).
+      final raw = (_lastStatus?['state'] ?? '').toString().toUpperCase();
+      final disconnected = raw.contains('DISCONNECT') ||
+          raw.contains('STOP') ||
+          raw.contains('ERROR') ||
+          raw.contains('WAITING');
+      if (disconnected) {
+        _active = false;
+        _starting = false;
+      } else if (raw.contains('CONNECTED')) {
         _active = true;
         _starting = false;
         _lastError = null;
-      }
-      if (state.contains('disconnected') || state.contains('stopped') || state.contains('error')) {
-        _active = false;
-        _starting = false;
       }
       notifyListeners();
     });
@@ -182,6 +190,23 @@ class VpnManager extends ChangeNotifier {
     }
   }
 
+  /// Wait (up to [timeout]) for the engine status stream to report CONNECTED.
+  /// Returns immediately if already active. Never throws.
+  Future<bool> _waitForConnected(Duration timeout) async {
+    if (_active) return true;
+    final completer = Completer<bool>();
+    void listener() {
+      if (_active && !completer.isCompleted) completer.complete(true);
+    }
+    addListener(listener);
+    unawaited(Future.delayed(timeout, () {
+      if (!completer.isCompleted) completer.complete(false);
+    }));
+    final result = await completer.future;
+    removeListener(listener);
+    return result;
+  }
+
   /// Auto-start VPN once when app opens. Only runs once per app session.
   /// [UPDATE 2026-06-08] First-time unsigned-in users do NOT auto-start VPN.
   /// VPN is PRO ONLY — ignores access check flag.
@@ -278,7 +303,18 @@ class VpnManager extends ChangeNotifier {
 
       if (token != _startToken) return;
 
-      _active = true;
+      // [FIX 2026-09-02] startVpn() returning does NOT mean the tunnel is up.
+      // Wait briefly for a real CONNECTED event before claiming active —
+      // otherwise a dead tunnel leaves _active stuck true and the VPN splash
+      // blocks the whole app for its full timeout.
+      final connected = await _waitForConnected(const Duration(seconds: 12));
+      if (token != _startToken) return;
+      _active = connected;
+      if (!connected) {
+        _lastError = 'VPN could not establish a connection';
+        notifyListeners();
+        return;
+      }
       // Clear manual stop flag when VPN successfully connects
       _userManuallyStopped = false;
     } catch (e) {

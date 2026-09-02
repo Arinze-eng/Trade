@@ -42,7 +42,12 @@ import './../../../features/channels/screens/channels_screen.dart';
 import '../../vpn_ui/widgets/vpn_card.dart';
 
 class ChatListScreen extends StatefulWidget {
-  const ChatListScreen({super.key});
+  const ChatListScreen({super.key, this.currentUser});
+
+  /// [UPDATE 2026-09-02] Optional profile handed down by MainShell (cached /
+  /// fallback). Lets the chat UI paint instantly without waiting on a server
+  /// round-trip — WhatsApp style.
+  final Map<String, dynamic>? currentUser;
 
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -177,12 +182,22 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
         }
       }
+    }, onError: (_) {
+      // [FIX 2026-09-02] Realtime socket timeout must never crash the screen.
     });
   }
 
   Future<void> _initApp() async {
+    // [FIX 2026-09-02 v3 — WhatsApp style] Seed the profile from whatever the
+    // shell already has (cached / fallback) and reveal the UI IMMEDIATELY.
+    // The chat list then paints with local data while everything else syncs
+    // in the background. Server latency can no longer gate the UI.
+    if (widget.currentUser != null) {
+      _profile = widget.currentUser;
+      _isInitializing = false;
+    }
+
     setState(() {
-      _isInitializing = true;
       _initError = null;
     });
 
@@ -197,8 +212,23 @@ class _ChatListScreenState extends State<ChatListScreen>
         return;
       }
 
-      final profile = await _supabaseService.getProfile(user.id);
-      final access = await _supabaseService.checkAccessStatus(user.id);
+      // [FIX 2026-09-02] Startup fetches run in PARALLEL with hard timeouts —
+      // a stalled request can no longer freeze the chat screen.
+      final profileFuture = _supabaseService
+          .getProfile(user.id)
+          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+      final accessFuture = _supabaseService.checkAccessStatus(user.id).timeout(
+            const Duration(seconds: 12),
+            onTimeout: () => <String, dynamic>{
+              'hasAccess': true,
+              'isPremium': false,
+              'hasVpnAccess': false,
+              'reason': 'offline',
+            },
+          );
+
+      final profile = await profileFuture;
+      final access = await accessFuture;
 
       if (profile != null && profile['is_blocked'] == true) {
         await _supabaseService.signOut();
@@ -257,25 +287,50 @@ class _ChatListScreenState extends State<ChatListScreen>
 
       _supabaseService.updateLastSeen(user.id);
 
-      await Future.wait([
-        _refreshThreads(),
-        _loadDiscoverUsers(),
-        _loadGroups(),
-        _loadActiveStatusUsers(),
-      ]);
+      // [FIX 2026-09-02] Render the chat list as soon as threads arrive —
+      // don't block the whole UI on discover/groups/status/business loads.
+      final threadsFuture = _refreshThreads().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {},
+      );
+      unawaited(
+        Future.wait([
+          _loadDiscoverUsers(),
+          _loadGroups(),
+          _loadActiveStatusUsers(),
+        ]).catchError((_) {}),
+      );
+
+      await threadsFuture;
 
       _startThreadRefreshListener();
 
-      // Init business data
-      await _initBusinessData();
-
       setState(() => _isInitializing = false);
+
+      // Business data (contacts/threads mirror) syncs in background, capped.
+      unawaited(
+        _initBusinessData()
+            .timeout(const Duration(seconds: 15), onTimeout: () {})
+            .catchError((_) {}),
+      );
 
       _handlePendingNotificationNavigation();
     } catch (e) {
-      setState(() {
-        _isInitializing = false;
-        _initError = e.toString();
+      // [FIX 2026-09-02] Safety net: initialization can NEVER leave the screen
+      // stuck on the spinner. If anything above throws, still reveal the UI.
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _initError = e.toString();
+        });
+      }
+    } finally {
+      // Last-resort watchdog: force the chat view to render even if some
+      // platform-channel call stalls indefinitely.
+      Timer(const Duration(seconds: 20), () {
+        if (mounted && _isInitializing) {
+          setState(() => _isInitializing = false);
+        }
       });
     }
   }
@@ -358,6 +413,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           _refreshThreads();
         }
       },
+      onError: (_) {
+        // Realtime unavailable — FCM push + pull-to-refresh still work.
+      },
     );
   }
 
@@ -439,6 +497,10 @@ class _ChatListScreenState extends State<ChatListScreen>
                   ),
         ),
       );
+    }, onError: (_) {
+      // [FIX 2026-09-02] Realtime stream error (socket timeout through VPN):
+      // swallow it. In-app banners for new messages are a nice-to-have; FCM
+      // push notifications still deliver reliably when realtime is down.
     });
   }
 

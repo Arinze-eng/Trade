@@ -141,7 +141,12 @@ class _VpnSplashScreenState extends State<VpnSplashScreen>
         pageBuilder: (_, __, ___) => const SplashScreen(),
         transitionDuration: const Duration(milliseconds: 600),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
+          // [FIX 2026-09-02] Dark-colored transition container so no white or
+          // brown flash leaks through between splash screens.
+          return Container(
+            color: const Color(0xFF0A0E27),
+            child: FadeTransition(opacity: animation, child: child),
+          );
         },
       ),
     );

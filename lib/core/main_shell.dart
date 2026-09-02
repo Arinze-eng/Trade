@@ -12,7 +12,12 @@ import 'calls_history_screen.dart';
 /// WhatsApp-style bottom nav shell:
 ///   [Chats] [Updates] [Calls] [Wallet]
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+  const MainShell({super.key, required this.profile});
+
+  /// [UPDATE 2026-09-02] Profile supplied by AuthWrapper (cached or fallback).
+  /// The shell renders IMMEDIATELY — a background refresh updates it when the
+  /// server responds. Nothing here waits on the network before painting.
+  final Map<String, dynamic> profile;
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -20,43 +25,39 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+  late Map<String, dynamic> _profile = widget.profile;
   final _supabaseService = SupabaseService();
-  Map<String, dynamic>? _profile;
-  bool _loading = true;
+  bool _refreshedOnce = false;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshProfile());
   }
 
-  Future<void> _loadProfile() async {
+  @override
+  void didUpdateWidget(covariant MainShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // AuthWrapper pushed a fresher profile down → adopt it.
+    if (widget.profile != oldWidget.profile && mounted) {
+      setState(() => _profile = widget.profile);
+    }
+  }
+
+  Future<void> _refreshProfile() async {
+    if (_refreshedOnce) return;
+    _refreshedOnce = true;
     try {
       final user = _supabaseService.currentUser;
-      if (user == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      final p = await _supabaseService.getProfile(user.id);
-      final usernameFromMeta = (user.userMetadata?['username'] ?? '').toString();
-      final displayNameFromMeta =
-          (user.userMetadata?['display_name'] ?? '').toString();
-      final fallback = {
-        'id': user.id,
-        'email': user.email,
-        'username': usernameFromMeta.isNotEmpty
-            ? usernameFromMeta
-            : user.id.substring(0, 8).toUpperCase(),
-        'display_name': displayNameFromMeta,
-      };
-      if (mounted) {
-        setState(() {
-          _profile = p ?? fallback;
-          _loading = false;
-        });
-      }
+      if (user == null) return;
+      final p = await _supabaseService
+          .getProfile(user.id)
+          .timeout(const Duration(seconds: 15), onTimeout: () => null);
+      if (p == null || !mounted) return;
+      if (p['is_blocked'] == true) return; // AuthWrapper handles blocking
+      setState(() => _profile = p);
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      // Offline is fine — we already rendered with the cached profile.
     }
   }
 
@@ -64,23 +65,12 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     // [UPDATE 2026-06-08-P2] Use theme-aware background
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
-    
-    if (_loading) {
-      return Scaffold(
-        backgroundColor: bgColor,
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
 
     final pages = <Widget>[
-      const ChatListScreen(),
-      _profile == null
-          ? const _NoProfilePlaceholder(label: 'Updates')
-          : StatusScreen(currentUser: _profile!),
+      ChatListScreen(currentUser: _profile),
+      StatusScreen(currentUser: _profile),
       const CallsHistoryScreen(),
-      _profile == null
-          ? const _NoProfilePlaceholder(label: 'Wallet')
-          : WalletScreen(currentUser: _profile!),
+      WalletScreen(currentUser: _profile),
     ];
 
     return Scaffold(

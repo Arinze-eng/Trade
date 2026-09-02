@@ -132,6 +132,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
 
     _typingSub = _supabaseService.streamIsOtherTyping(otherUserId: widget.otherUser['id']).listen((typing) {
       if (mounted) setState(() => _isTyping = typing);
+    }, onError: (_) {
+      // [FIX 2026-09-02] Realtime stall must never break the chat room.
     });
 
     _listenForCalls();
@@ -419,6 +421,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
           _showIncomingCallDialog(fromId, isVideo);
         }
       }
+    }, onError: (_) {
+      // [FIX 2026-09-02] Realtime stall must never break the chat room.
     });
   }
 
