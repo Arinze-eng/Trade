@@ -1,3 +1,18 @@
+// Put the Android Gradle Plugin on the buildscript classpath so that
+// third-party Flutter plugins using the LEGACY `apply plugin: 'com.android.library'`
+// syntax (e.g. agora_rtc_engine) can resolve it.
+// AGP 8.7.2 is chosen to stay within the KGP 2.1.20 compatibility range
+// (see flutter/flutter#180899): KGP 2.1.20 supports AGP up to 8.7.2.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.2'
+    }
+}
+
 allprojects {
     repositories {
         google()
