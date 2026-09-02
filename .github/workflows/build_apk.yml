@@ -26,6 +26,11 @@ jobs:
           channel: 'stable'
           cache: true
       
+      - name: Bust stale Gradle/AGP build state
+        run: |
+          rm -rf android/.gradle android/app/build android/build build
+          echo "Stale Gradle build dirs cleared."
+
       - name: Install dependencies
         run: flutter pub get
       
