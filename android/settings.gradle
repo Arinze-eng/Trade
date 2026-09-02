@@ -14,19 +14,24 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+
+    // Lock AGP to 8.x — prevents AGP 9+ new-DSL enforcement that breaks
+    // the Flutter Gradle plugin's afterEvaluate lifecycle hook.
+    plugins {
+        id "com.android.application" version "8.10.0" apply false
+        id "com.android.library" version "8.10.0" apply false
+    }
 }
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.7.2" apply false
-    id "com.android.library" version "8.7.2" apply false
     id "org.jetbrains.kotlin.android" version "2.1.20" apply false
     id "com.google.gms.google-services" version "4.4.2" apply false
 }
 
 // Set compileSdk before any subproject evaluates — avoids the eager
-// subprojects{} block in build.gradle that caused afterEvaluate timing
-// conflicts with the Flutter Gradle plugin.
+// subprojects{} block in build.gradle that was causing afterEvaluate
+// timing conflicts with the Flutter Gradle plugin.
 gradle.beforeProject { project ->
     project.pluginManager.withPlugin("com.android.library") {
         def android = project.extensions.findByName("android")
