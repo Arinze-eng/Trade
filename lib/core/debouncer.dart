@@ -1,5 +1,6 @@
-import 'dart:async' show Timer, VoidCallback;
+import 'dart:async' show Timer;
 import 'dart:collection';
+import 'dart:ui' show VoidCallback;
 
 /// [UPDATE 2026-06-08-LAGFIX] Debounce & throttle utilities
 ///
