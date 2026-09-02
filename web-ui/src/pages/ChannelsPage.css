@@ -1,0 +1,161 @@
+.channels-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-header {
+  padding: 16px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.page-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.channels-section {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.channels-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px 0;
+}
+
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.channel-card {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 160ms ease-out;
+}
+
+.channel-card:hover {
+  border-color: #0f766e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.channel-card.featured {
+  border: 2px solid #d97706;
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.05) 0%, rgba(217, 119, 6, 0.02) 100%);
+}
+
+.channel-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: flex-start;
+}
+
+.channel-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.channel-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.channel-info h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 4px 0;
+}
+
+.channel-info p {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sponsored-badge {
+  background-color: #d97706;
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.channel-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.channel-members {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.join-button {
+  background-color: #0f766e;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 160ms ease-out;
+}
+
+.join-button:hover {
+  background-color: #0d5a54;
+}
+
+.join-button:active {
+  transform: scale(0.95);
+}
+
+.join-button.joined {
+  background-color: #10b981;
+  cursor: default;
+}
+
+.action-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #0f766e;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 160ms ease-out;
+}
+
+.action-button:hover {
+  background-color: #0d5a54;
+}
+
+.action-button:active {
+  transform: scale(0.95);
+}
