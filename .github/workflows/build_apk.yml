@@ -40,13 +40,6 @@ jobs:
             cd third_party && tar xzf device_apps-2.2.0.tar.gz && cd ..
           fi
       
-      - name: Diagnose Gradle configuration (temporary stacktrace)
-        run: |
-          printf 'sdk.dir=%s\nflutter.sdk=%s\nflutter.buildMode=release\nflutter.versionCode=19\nflutter.versionName=3.4.0\n' "$ANDROID_HOME" "$FLUTTER_ROOT" > android/local.properties
-          cat android/local.properties
-          (cd android && ./gradlew :app:help --stacktrace 2>&1) | tee /tmp/gradle_stack.log
-          echo "EXIT=${PIPESTATUS[0]}"
-
       - name: Build APK (release, split-per-abi, tree-shake-icons)
         run: flutter build apk --release --split-per-abi --tree-shake-icons
       

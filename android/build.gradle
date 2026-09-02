@@ -9,6 +9,9 @@ rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
+subprojects {
+    project.evaluationDependsOn(":app")
+}
 
 // Force all Android library subprojects to use compileSdk 36
 // This fixes "resource android:attr/lStar not found" errors

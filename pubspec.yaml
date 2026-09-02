@@ -85,14 +85,6 @@ dependency_overrides:
     path: third_party/isar_flutter_libs
   device_apps:
     path: third_party/device_apps
-  # [FIX 2026-09-02] agora_rtc_engine's stock android/build.gradle has an empty
-  # buildscript{} with no AGP classpath, so its legacy `apply plugin:
-  # com.android.library` forces eager project evaluation that breaks Flutter's
-  # flutter-gradle-plugin afterEvaluate hook (Cannot run afterEvaluate when the
-  # project is already evaluated). Vendored copy pins the AGP classpath the same
-  # way the working isar_flutter_libs/device_apps vendored plugins do.
-  agora_rtc_engine:
-    path: third_party/agora_rtc_engine
   # [FIX 2026-09-02] workmanager 0.9.2 ships apple 0.9.4 against
   # platform_interface 0.9.4, which added `foregroundServiceConfig` to
   # registerPeriodicTask — the bundled apple impl doesn't implement it and
