@@ -34,10 +34,11 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text.trim(),
       );
 
-      // Check if user is blocked
+      // Check if user is blocked — [FIX 2026-09-02] fresh server verdict only,
+      // and never cache a just-blocked profile for the next screen.
       final user = _supabaseService.currentUser;
       if (user != null) {
-        final profile = await _supabaseService.getProfile(user.id);
+        final profile = await _supabaseService.getProfileFresh(user.id);
         if (profile != null && profile['is_blocked'] == true) {
           // Sign out blocked user immediately
           await _supabaseService.signOut();

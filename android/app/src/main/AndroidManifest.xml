@@ -17,6 +17,12 @@
 
     <!-- Media features -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- [ADD 2026-09-02] Agora audio/video calls -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Android 13+ (Tiramisu) images permission -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- Android 13+ audio permission (voice notes) -->

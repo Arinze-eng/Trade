@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path_provider/path_provider.dart';
@@ -140,6 +142,7 @@ class SupabaseService {
       }
     } catch (_) {}
 
+    clearProfileCache(); // [FIX 2026-09-02] never leak cached profile across accounts
     await _client.auth.signOut();
   }
 
@@ -177,15 +180,139 @@ class SupabaseService {
         .select('id,email,username,display_name,last_seen,hide_last_seen,hide_read_receipts,created_at,about,avatar_url')
         .order('created_at', ascending: false);
 
-    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final list = (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    // [UPDATE 2026-09-02] Persist a local mirror so screens that need display
+    // names (status, call history, group members) can paint INSTANTLY from the
+    // previous session's directory while the fresh copy syncs in background.
+    unawaited(_persistDirectory(list));
+    return list;
   }
 
-  Future<Map<String, dynamic>?> getProfile(String userId) async {
+  static const String _kDirectoryCacheKey = 'profiles_directory_cache_v1';
+
+  Future<void> _persistDirectory(List<Map<String, dynamic>> profiles) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      // Keep it small: only fields needed for name/avatar rendering.
+      final slim = profiles
+          .map((p) => {
+                'id': p['id'],
+                'username': p['username'] ?? '',
+                'display_name': p['display_name'] ?? '',
+              })
+          .toList();
+      await sp.setString(_kDirectoryCacheKey, jsonEncode(slim));
+    } catch (_) {}
+  }
+
+  /// Read the locally cached user directory instantly (no network). Used as
+  /// the first paint source by Status / Calls / Groups screens.
+  Future<List<Map<String, dynamic>>> loadCachedDirectory() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_kDirectoryCacheKey);
+      if (raw == null) return const [];
+      return (jsonDecode(raw) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Fire-and-forget refresh of the directory cache — never blocks a screen.
+  void refreshDirectoryInBackground() {
+    unawaited(
+      listProfiles().timeout(const Duration(seconds: 20)).catchError(
+            (_) => const <Map<String, dynamic>>[],
+          ),
+    );
+  }
+
+  // [UPDATE 2026-09-02] Per-user profile micro-cache. The same user's profile
+  // used to be re-fetched by AuthWrapper, MainShell and ChatListScreen on every
+  // cold start — multiple round-trips gating UI decisions and causing visible
+  // lag when Supabase was slow. Now: first fetch is cached in memory (short
+  // TTL), stale cache is served instantly while a background refresh updates
+  // it, and a failure NEVER surfaces as null when we have a previously-known
+  // good value (so a network hiccup can't log users out).
+  static final Map<String, Map<String, dynamic>> _profileCache = {};
+  static final Map<String, DateTime> _profileCacheAt = {};
+  static final Set<String> _profileRefreshInFlight = {};
+  static const Duration _profileFreshTtl = Duration(minutes: 1);
+
+  /// Wipe the profile cache only on explicit sign-out / account deletion so a
+  /// blocked or deleted account state is always re-verified for the next user.
+  void clearProfileCache() {
+    _profileCache.clear();
+    _profileCacheAt.clear();
+  }
+
+  Future<Map<String, dynamic>?> _fetchProfileFromServer(String userId) async {
     return await _client
         .from('profiles')
         .select('id,email,username,display_name,trial_ends_at,is_subscribed,subscription_expiry,last_seen,hide_last_seen,hide_read_receipts,created_at,is_blocked,blocked_reason,blocked_at,about,avatar_url,tier,subscription_started_at,subscription_ends_at,referral_code,referral_count,referred_by,streak_days,last_streak_date,daily_earnings,total_earnings')
         .eq('id', userId)
         .maybeSingle();
+  }
+
+  Future<void> _refreshProfileInBackground(String userId) async {
+    if (!_profileRefreshInFlight.add(userId)) return; // one flight per user
+    try {
+      final fresh = await _fetchProfileFromServer(userId);
+      if (fresh != null) {
+        _profileCache[userId] = fresh;
+        _profileCacheAt[userId] = DateTime.now();
+      }
+    } catch (_) {
+      // Keep serving the cached copy; retry happens on the next call.
+    } finally {
+      _profileRefreshInFlight.remove(userId);
+    }
+  }
+
+  Future<Map<String, dynamic>?> getProfile(String userId) async {
+    final cached = _profileCache[userId];
+    final age = cached == null
+        ? null
+        : DateTime.now().difference(_profileCacheAt[userId]!);
+
+    if (cached != null && age != null && age < _profileFreshTtl) {
+      return cached; // fresh enough — zero network, instant UI
+    }
+
+    if (cached != null) {
+      // Stale but usable: return immediately, validate in the background.
+      unawaited(_refreshProfileInBackground(userId));
+      return cached;
+    }
+
+    try {
+      final data = await _fetchProfileFromServer(userId);
+      if (data != null) {
+        _profileCache[userId] = data;
+        _profileCacheAt[userId] = DateTime.now();
+      }
+      return data;
+    } catch (_) {
+      // Network failed and we have nothing cached. Return null ONLY here;
+      // callers treat null conservatively (they never sign out on this path
+      // unless the session itself is gone).
+      return null;
+    }
+  }
+
+  /// Always hits the server (bypasses cache). Used only where a DEFINITIVE,
+  /// up-to-date verdict matters (block check at auth gate, admin ops).
+  /// Throws on network failure so callers can distinguish "server said X"
+  /// from "couldn't reach the server".
+  Future<Map<String, dynamic>?> getProfileFresh(String userId) async {
+    final data = await _fetchProfileFromServer(userId);
+    if (data != null) {
+      _profileCache[userId] = data;
+      _profileCacheAt[userId] = DateTime.now();
+    }
+    return data;
   }
 
   Future<Map<String, dynamic>?> getProfileByChatUuid(String chatUuid) async {
@@ -992,6 +1119,20 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getActiveStatus({String? currentUserId}) async {
+    // [FIX 2026-09-02] Lightweight variant used by the chat list ONLY to know
+    // which users have an active status (green ring). The full method also
+    // pulled two extra tables for privacy filtering — unnecessary here since
+    // your own privacy is applied client-side anyway. Fewer round-trips = less lag.
+    final res = await _client
+        .from('status')
+        .select('user_id')
+        .gt('expires_at', DateTime.now().toUtc().toIso8601String());
+    return (res as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getActiveStatusFull({String? currentUserId}) async {
     var query = _client
         .from('status')
         .select('id,user_id,status_type,content,media_path,media_mime,background_color,is_bold,created_at,expires_at,caption,music_path,music_mime,music_start_ms')
@@ -1853,6 +1994,41 @@ class SupabaseService {
       'p_secret': secret,
       'p_enabled': enabled,
     });
+  }
+
+  // ─── Generic app settings (app_settings key/value table) ────────────────
+  // [NEW 2026-09-02] Used for the Netchat AI token so the admin can change it
+  // from the admin panel without shipping a new APK.
+
+  Future<String?> getAppSetting(String key) async {
+    try {
+      final row = await _client
+          .from('app_settings')
+          .select('value')
+          .eq('key', key)
+          .maybeSingle();
+      if (row == null) return null;
+      final v = row['value'];
+      // value column is JSONB — string may be stored raw or quoted.
+      final s = (v is String) ? v : v?.toString() ?? '';
+      return s.isEmpty ? null : s;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Upsert an app setting. Requires the row to exist (UPDATE policy); if the
+  /// patch affects nothing we surface the error so the caller can show it.
+  Future<void> setAppSetting(String key, String value) async {
+    final res = await _client
+        .from('app_settings')
+        .update({'value': value})
+        .eq('key', key)
+        .select('key');
+    if (res == null || (res as List).isEmpty) {
+      throw Exception(
+          'Setting "$key" not found in app_settings. Ask the owner to insert it once via SQL.');
+    }
   }
 }
 

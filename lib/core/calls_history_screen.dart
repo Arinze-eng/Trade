@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/supabase_service.dart';
@@ -29,14 +33,42 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    // [FIX 2026-09-02] Render from the last snapshot instantly, then sync.
+    _hydrateFromCache();
+  }
+
+  Future<void> _hydrateFromCache() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = _supabaseService.currentUser?.id ?? '';
+      if (uid.isEmpty) return;
+      final raw = sp.getString('calls_history_cache_v1_$uid');
+      if (raw != null && mounted) {
+        setState(() {
+          _calls = (jsonDecode(raw) as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          _loading = false;
+        });
+      }
+    } catch (_) {}
     _load();
   }
 
+  Future<void> _persistCache() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = _supabaseService.currentUser?.id ?? '';
+      if (uid.isEmpty) return;
+      await sp.setString(
+          'calls_history_cache_v1_$uid', jsonEncode(_calls.take(100).toList()));
+    } catch (_) {}
+  }
+
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    // Only spin on a cold load — keep cached rows visible during refresh.
+    if (_calls.isEmpty) setState(() => _loading = true);
+    _error = null;
     try {
       final user = _supabaseService.currentUser;
       if (user == null) {
@@ -87,6 +119,7 @@ class _CallsHistoryScreenState extends State<CallsHistoryScreen> {
         _calls = list;
         _loading = false;
       });
+      unawaited(_persistCache()); // [FIX 2026-09-02] cache for instant next open
     } catch (e) {
       if (!mounted) return;
       setState(() {

@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../models/user_tier.dart';
 import '../../../services/cdn_chat_business_service.dart';
@@ -34,11 +37,63 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void initState() {
     super.initState();
+    // [FIX 2026-09-02] Paint instantly from the last-known wallet snapshot,
+    // then re-sync with the server in background. Balance is always corrected
+    // by the server fetch before any spend action can use it.
+    _hydrateFromCache();
+  }
+
+  Future<void> _hydrateFromCache() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = widget.currentUser['id']?.toString() ?? '';
+      final raw = sp.getString('wallet_snapshot_cache_v1_$uid');
+      if (raw != null && mounted) {
+        final d = jsonDecode(raw) as Map<String, dynamic>;
+        setState(() {
+          _tier = UserTier.fromApi(d['tier']?.toString());
+          _balance = (d['balance'] as num?)?.toDouble() ?? 0;
+          _dailyEarnings = (d['dailyEarnings'] as num?)?.toDouble() ?? 0;
+          _totalEarnings = (d['totalEarnings'] as num?)?.toDouble() ?? 0;
+          _streak = (d['streak'] as num?)?.toInt() ?? 0;
+          _referralCount = (d['referralCount'] as num?)?.toInt() ?? 0;
+          _referralCode = d['referralCode']?.toString() ?? '';
+          _transactions = (d['transactions'] as List? ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          _isLoading = false;
+        });
+      }
+    } catch (_) {}
     _loadData();
   }
 
+  Future<void> _persistSnapshot() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = widget.currentUser['id']?.toString() ?? '';
+      await sp.setString(
+        'wallet_snapshot_cache_v1_$uid',
+        jsonEncode({
+          'tier': _tier.name,
+          'balance': _balance,
+          'dailyEarnings': _dailyEarnings,
+          'totalEarnings': _totalEarnings,
+          'streak': _streak,
+          'referralCount': _referralCount,
+          'referralCode': _referralCode,
+          // Cap history size so the cache stays small & fast.
+          'transactions': _transactions.take(30).toList(),
+        }),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    // Only spin when there's nothing cached to show yet.
+    if (_transactions.isEmpty && _balance == 0 && _referralCode.isEmpty) {
+      if (mounted) setState(() => _isLoading = true);
+    }
     try {
       final userId = widget.currentUser['id'] as String;
 
@@ -76,6 +131,7 @@ class _WalletScreenState extends State<WalletScreen> {
           _referralCount = widget.currentUser['referral_count'] ?? 0;
           _isLoading = false;
         });
+        unawaited(_persistSnapshot()); // [FIX 2026-09-02] cache for instant next open
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);

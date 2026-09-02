@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/admin_gate.dart';
+import '../services/netchat_ai_service.dart';
 import '../services/supabase_service.dart';
 import '../services/vpn_manager.dart';
 import '../services/vpn_service.dart';
@@ -31,12 +34,17 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _togglingFp = false;
 
   final _vpnConfigController = TextEditingController();
+
+  // [NEW 2026-09-02] Netchat AI token management
+  final _aiTokenController = TextEditingController();
+  bool _savingAiToken = false;
   final _searchController = TextEditingController();
 
   @override
   void dispose() {
     _passwordController.dispose();
     _vpnConfigController.dispose();
+    _aiTokenController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -484,6 +492,33 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  // ─── Netchat AI token management [NEW 2026-09-02] ───
+  Future<void> _saveAiToken() async {
+    final token = _aiTokenController.text.trim();
+    if (token.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AI token cannot be empty'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+    setState(() => _savingAiToken = true);
+    try {
+      await NetchatAiService.setAdminToken(token);
+      NetchatAiService.invalidateCache();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Netchat AI token updated ✓'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save AI token: $e'), backgroundColor: Colors.redAccent),
+      );
+    } finally {
+      if (mounted) setState(() => _savingAiToken = false);
+    }
+  }
+
   // ─── Cash Out Management ───
   Future<void> _markCashOutPaid(int cashOutId) async {
     setState(() {
@@ -572,6 +607,35 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // [FIX 2026-09-02] Hard gate: only the owner email may open this screen.
+    // The drawer already hides the entry for everyone else; this protects
+    // against any other navigation path reaching AdminScreen directly.
+    final email = Supabase.instance.client.auth.currentUser?.email ?? '';
+    if (!AdminGate.isAdmin(email)) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F1115),
+        appBar: AppBar(title: const Text('Admin')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock_outline_rounded,
+                  color: Colors.redAccent.withOpacity(0.8), size: 48),
+              const SizedBox(height: 12),
+              Text('Access denied',
+                  style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18)),
+              const SizedBox(height: 6),
+              Text('This area is restricted to the app owner.',
+                  style: GoogleFonts.poppins(color: Colors.white60)),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F2027),
       appBar: AppBar(
@@ -674,6 +738,56 @@ class _AdminScreenState extends State<AdminScreen> {
                         child: ElevatedButton(
                           onPressed: _loading ? null : _saveVpnConfig,
                           child: const Text('Save VPN Config'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ─── Netchat AI Token [NEW 2026-09-02] ───
+                const SizedBox(height: 12),
+                GlassContainer(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded, color: Colors.pinkAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Netchat AI Token',
+                              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text('PowerX agent API token used by the in-app Netchat AI. Leave unchanged to keep the current token.',
+                          style: GoogleFonts.poppins(color: Colors.white54, fontSize: 11)),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _aiTokenController,
+                        obscureText: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'px_xxxxxxxx…',
+                          hintStyle: const TextStyle(color: Colors.white30),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.06),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _savingAiToken ? null : _saveAiToken,
+                          icon: _savingAiToken
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.save_rounded),
+                          label: const Text('Save AI Token'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
                         ),
                       ),
                     ],

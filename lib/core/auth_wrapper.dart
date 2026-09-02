@@ -105,13 +105,16 @@ class _AuthWrapperState extends State<AuthWrapper>
     }
   }
 
-  /// Background block/access check. Only acts on a DEFINITIVE server answer.
+  /// Background block/access check. Only acts on a DEFINITIVE, FRESH server
+  /// answer. [FIX 2026-09-02] uses getProfileFresh() so a stale in-memory
+  /// cache can never be mistaken for a server verdict (that path used to be
+  /// able to sign users out on a network hiccup).
   Future<void> _checkBlockedInBackground(String userId) async {
     if (_checkedBlockedFor == userId) return;
     _checkedBlockedFor = userId;
     try {
       final profile = await _supabaseService
-          .getProfile(userId)
+          .getProfileFresh(userId)
           .timeout(const Duration(seconds: 15));
 
       if (profile == null) {

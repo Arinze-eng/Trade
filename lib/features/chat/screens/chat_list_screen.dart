@@ -13,6 +13,7 @@ import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/debouncer.dart';
 import '../../../core/offline_queue.dart';
@@ -27,6 +28,7 @@ import '../../../shared/theme/app_colors.dart';
 import '../../../local_db/local_chat_store.dart';
 import '../../../local_db/saved_contacts_store.dart';
 import '../../../screens/admin_screen.dart';
+import '../../../services/admin_gate.dart';
 
 import 'chat_room_screen.dart';
 import 'group_chat_room_screen.dart';
@@ -40,6 +42,7 @@ import './../../../features/cdn_chat/screens/wallet_screen.dart';
 import './../../../features/cdn_chat/screens/subscription_screen.dart';
 import './../../../features/channels/screens/channels_screen.dart';
 import '../../vpn_ui/widgets/vpn_card.dart';
+import '../../ai/netchat_ai_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key, this.currentUser});
@@ -212,11 +215,10 @@ class _ChatListScreenState extends State<ChatListScreen>
         return;
       }
 
-      // [FIX 2026-09-02] Startup fetches run in PARALLEL with hard timeouts —
-      // a stalled request can no longer freeze the chat screen.
-      final profileFuture = _supabaseService
-          .getProfile(user.id)
-          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+      // [FIX 2026-09-02] Block verdict must come from a DEFINITIVE fresh
+      // server answer — never from a cache or timeout placeholder. Everything
+      // else (profile details, access) is served instantly from the shared
+      // profile cache when available, so Supabase latency cannot gate the UI.
       final accessFuture = _supabaseService.checkAccessStatus(user.id).timeout(
             const Duration(seconds: 12),
             onTimeout: () => <String, dynamic>{
@@ -227,10 +229,22 @@ class _ChatListScreenState extends State<ChatListScreen>
             },
           );
 
-      final profile = await profileFuture;
+      Map<String, dynamic>? profile;
+      bool blockedChecked = false;
+      try {
+        profile = await _supabaseService
+            .getProfileFresh(user.id)
+            .timeout(const Duration(seconds: 12));
+        blockedChecked = true;
+      } catch (_) {
+        // Couldn't reach the server right now → fall back to cached/instant
+        // profile and stay in the app (WhatsApp behaviour).
+        profile = await _supabaseService.getProfile(user.id);
+      }
+
       final access = await accessFuture;
 
-      if (profile != null && profile['is_blocked'] == true) {
+      if (blockedChecked && profile != null && profile['is_blocked'] == true) {
         await _supabaseService.signOut();
         if (mounted) {
           final reason =
@@ -371,6 +385,17 @@ class _ChatListScreenState extends State<ChatListScreen>
     try {
       final user = _supabaseService.currentUser;
       if (user == null) return;
+
+      // [FIX 2026-09-02] Paint green rings instantly from the local mirror,
+      // then sync in background. The full status table fetch no longer gates
+      // the first frame of the chat list.
+      final sp = await SharedPreferences.getInstance();
+      final cached = sp.getString('active_status_users_cache_v1');
+      if (cached != null && mounted) {
+        setState(() => _usersWithActiveStatus =
+            (jsonDecode(cached) as List).map((e) => e.toString()).toSet());
+      }
+
       final allStatus = await _supabaseService.getActiveStatus(
         currentUserId: user.id,
       );
@@ -381,6 +406,8 @@ class _ChatListScreenState extends State<ChatListScreen>
           activeUserIds.add(userId);
         }
       }
+      unawaited(sp.setString(
+          'active_status_users_cache_v1', jsonEncode(activeUserIds.toList())));
       if (mounted) {
         setState(() => _usersWithActiveStatus = activeUserIds);
       }
@@ -535,7 +562,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       final user = _supabaseService.currentUser;
       if (user == null) return;
 
-      final profile = await _supabaseService.getProfile(user.id);
+      // [FIX 2026-09-02] Use the profile already loaded in memory (_profile)
+      // instead of making another getProfile() round-trip on every call.
+      final profile = _profile ?? await _supabaseService.getProfile(user.id);
       final tier = (profile?['tier'] ?? 'free').toString().toLowerCase();
       final isSubscribed = profile?['is_subscribed'] == true;
       final expiryRaw = profile?['subscription_expiry'];
@@ -1710,6 +1739,15 @@ class _ChatListScreenState extends State<ChatListScreen>
             }
           }),
 
+          // [NEW 2026-09-02] Netchat AI — ask questions / upload files
+          _drawerItem(Icons.auto_awesome_rounded, 'Netchat AI', () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const NetchatAiScreen()),
+            );
+          }, iconColor: Colors.pinkAccent),
+
           // Calls
           _drawerItem(Icons.call_rounded, 'Calls', () {
             Navigator.pop(context);
@@ -1820,14 +1858,16 @@ class _ChatListScreenState extends State<ChatListScreen>
 
           const Divider(color: Colors.white12, height: 1),
 
-          // [UPDATE 2026-06-08-P2] Admin shown as dot (•) instead of full name
-          _drawerItem(Icons.admin_panel_settings_rounded, '• Admin', () {
-            Navigator.pop(context);
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const AdminScreen()),
-            );
-          }, iconColor: Colors.amber),
+          // [UPDATE 2026-09-02] Admin panel is visible ONLY to the owner email
+          // (allisonarinze@gmail.com). Other users never see this item at all.
+          if (AdminGate.isAdmin((_profile?['email'] ?? '').toString()))
+            _drawerItem(Icons.admin_panel_settings_rounded, '• Admin', () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AdminScreen()),
+              );
+            }, iconColor: Colors.amber),
 
           // Privacy
           _drawerItem(Icons.privacy_tip_rounded, 'Privacy', () {
@@ -2808,11 +2848,18 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Widget _buildArchivedEntry() {
-    return FutureBuilder<int>(
-      future: _countArchivedThreads(),
-      builder: (context, snap) {
-        final count = snap.data ?? 0;
-        return ListTile(
+    // [FIX 2026-09-02] Compute the archived count from the meta cache that is
+    // already loaded for the visible rows (synchronous) instead of a
+    // FutureBuilder that re-read SharedPreferences on EVERY rebuild — this ran
+    // once per frame while threads were still loading and caused jank.
+    int count = 0;
+    for (final t in _threads) {
+      final otherId = (t['other_user_id'] ?? t['other_id'] ?? '').toString();
+      if (otherId.isEmpty) continue;
+      final meta = _threadMetaCache[otherId];
+      if (meta?.isArchived == true) count++;
+    }
+    return ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const CircleAvatar(
             radius: 22,
@@ -2859,21 +2906,6 @@ class _ChatListScreenState extends State<ChatListScreen>
             );
           },
         );
-      },
-    );
-  }
-
-  Future<int> _countArchivedThreads() async {
-    int count = 0;
-    for (final t in _threads) {
-      final otherId = (t['other_user_id'] ?? t['other_id'] ?? '').toString();
-      final meta = await _localChatStore.getMeta(
-        ownerUserId: (_profile?['id'] ?? '').toString(),
-        otherId: otherId,
-      );
-      if (meta?.isArchived == true) count++;
-    }
-    return count;
   }
 
   Widget _buildGroupTile(Map<String, dynamic> group) {

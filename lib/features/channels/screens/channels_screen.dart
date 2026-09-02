@@ -26,13 +26,18 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
   }
 
   Future<void> _loadChannels() async {
-    setState(() => _isLoading = true);
+    // [FIX 2026-09-02] Only spin on a cold load; pull-to-refresh keeps the
+    // existing list visible while new data streams in.
+    if (_channels.isEmpty) setState(() => _isLoading = true);
     try {
       final user = _supabaseService.currentUser;
       if (user == null) return;
-      final groups = await _supabaseService.getMyGroups();
-      // Add discoverable channels
-      final allGroups = await _supabaseService.getAllGroups();
+      // Run both fetches in parallel — they were sequential before (2x latency).
+      final results = await Future.wait([
+        _supabaseService.getMyGroups(),
+        _supabaseService.getAllGroups(),
+      ]);
+      final allGroups = results[1];
       if (mounted) {
         setState(() {
           _channels = allGroups;

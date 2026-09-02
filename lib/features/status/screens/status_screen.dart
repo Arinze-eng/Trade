@@ -1,8 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../shared/widgets/glass_container.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -50,8 +53,58 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    _loadStatus();
+    // [FIX 2026-09-02] WhatsApp style: paint the shell instantly from local
+    // caches (status mirror + profile directory), then sync with Supabase in
+    // the background. The spinner used to gate the whole tab on 3+ sequential
+    // round-trips — that was a major source of perceived lag.
+    _hydrateFromCache();
     _startStatusNotificationListener(); // [FIX #3]
+  }
+
+  Future<void> _hydrateFromCache() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = widget.currentUser['id']?.toString() ?? '';
+      final raw = sp.getString('status_mirror_cache_v1_' + uid);
+      if (raw != null && mounted) {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        setState(() {
+          _myStatus = (decoded['mine'] as List? ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          _otherStatus = (decoded['others'] as Map? ?? {}).map(
+            (k, v) => MapEntry(
+                k.toString(),
+                (v as List)
+                    .map((e) => Map<String, dynamic>.from(e as Map))
+                    .toList()),
+          );
+          _userNames = (decoded['names'] as Map? ?? {})
+              .map((k, v) => MapEntry(k.toString(), v.toString()));
+          _userDisplayNames = (decoded['displayNames'] as Map? ?? {})
+              .map((k, v) => MapEntry(k.toString(), v.toString()));
+          _isLoading = false;
+        });
+      }
+    } catch (_) {}
+    // Background sync regardless of whether cache existed.
+    _loadStatus();
+  }
+
+  Future<void> _persistStatusMirror() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final uid = widget.currentUser['id']?.toString() ?? '';
+      await sp.setString(
+        'status_mirror_cache_v1_$uid',
+        jsonEncode({
+          'mine': _myStatus,
+          'others': _otherStatus,
+          'names': _userNames,
+          'displayNames': _userDisplayNames,
+        }),
+      );
+    } catch (_) {}
   }
 
   @override
@@ -88,12 +141,16 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
 
   Future<void> _loadStatus() async {
     try {
-      setState(() => _isLoading = true);
+      // [FIX 2026-09-02] Only show the spinner when there is nothing cached to
+      // show; otherwise sync silently over the already-painted UI.
+      if (_myStatus.isEmpty && _otherStatus.isEmpty) {
+        setState(() => _isLoading = true);
+      }
 
       final myId = widget.currentUser['id'] as String;
 
       // Load all active status (not expired), filtering by privacy exclusions
-      final allStatus = await _supabaseService.getActiveStatus(currentUserId: myId);
+      final allStatus = await _supabaseService.getActiveStatusFull(currentUserId: myId);
 
       // Separate my status and others'
       final myStatusList = <Map<String, dynamic>>[];
@@ -110,8 +167,9 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
         }
       }
 
-      // Load profiles for names
-      final profiles = await _supabaseService.listProfiles();
+      // [FIX 2026-09-02] Resolve names from the locally cached directory
+      // (instant, no network), then refresh the mirror in the background.
+      final profiles = await _supabaseService.loadCachedDirectory();
       final names = <String, String>{};
       final displayNames = <String, String>{};
       for (final p in profiles) {
@@ -119,6 +177,7 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
         names[id] = (p['username'] ?? 'User').toString();
         displayNames[id] = (p['display_name'] ?? '').toString();
       }
+      _supabaseService.refreshDirectoryInBackground();
 
       if (mounted) {
         setState(() {
@@ -129,6 +188,7 @@ class _StatusScreenState extends State<StatusScreen> with TickerProviderStateMix
           _usersWithActiveStatus = activeUsers;
           _isLoading = false;
         });
+        unawaited(_persistStatusMirror());
       }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);

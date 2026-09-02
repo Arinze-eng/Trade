@@ -19,7 +19,12 @@ class SupabaseSignalingClient {
   StreamSubscription<List<Map<String, dynamic>>>? _sub;
   final Set<String> _seenSignalIds = {};
 
-  SupabaseSignalingClient({required this.client, required this.selfId});
+  /// [NEW 2026-09-02] Optional filter: when set, only signals whose `from_id`
+  /// matches are delivered. Used by CallScreen so a call in progress with one
+  /// peer is never disturbed by another user's signals.
+  final String? onlyFromId;
+
+  SupabaseSignalingClient({required this.client, required this.selfId, this.onlyFromId});
 
   Future<void> connect({required void Function(Map<String, dynamic>) onSignal}) async {
     _sub?.cancel();
@@ -38,8 +43,9 @@ class SupabaseSignalingClient {
         if (_seenSignalIds.contains(id)) continue;
         _seenSignalIds.add(id);
 
-        // Process the signal
-        onSignal(m);
+        // Process the signal (respecting the optional sender filter).
+        final keep = onlyFromId == null || (m['from_id'] ?? '').toString() == onlyFromId;
+        if (keep) onSignal(m);
 
         // ── FIX: Delete processed signals to prevent accumulation ──
         // Old signals were piling up, causing the stream to emit more data

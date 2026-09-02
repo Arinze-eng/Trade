@@ -18,6 +18,14 @@
 -keep class io.supabase.** { *; }
 -dontwarn com.supabase.**
 
+# ===== Agora RTC SDK [ADD 2026-09-02] =====
+-keep class io.agora.** { *; }
+-dontwarn io.agora.**
+
+# ===== pdfx (Netchat AI PDF parsing) =====
+-keep class es.voghdev.pdfviewpager.** { *; }
+-dontwarn es.voghdev.pdfviewpager.**
+
 # ===== Firebase =====
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }

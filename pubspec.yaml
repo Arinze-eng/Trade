@@ -20,6 +20,14 @@ dependencies:
   # WebRTC for calls — v0.12 has stable audio session handling
   flutter_webrtc: ^0.12.3
 
+  # Agora RTC SDK — production-grade audio/video calling (App ID configured
+  # in lib/services/agora_config.dart). Media flows through Agora's infra;
+  # Supabase is only used for ring/accept signaling.
+  agora_rtc_engine: 6.5.3
+
+  # Netchat AI PDF text extraction (pure-Dart, no native deps)
+  syncfusion_flutter_pdf: ^27.2.5
+
   # V2Ray/Xray core plugin (preferred)
   flutter_v2ray: ^1.0.10
 
