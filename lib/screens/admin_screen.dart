@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/admin_gate.dart';
+import '../services/agora_config.dart';
 import '../services/netchat_ai_service.dart';
 import '../services/supabase_service.dart';
 import '../services/vpn_manager.dart';
@@ -40,11 +41,18 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _savingAiToken = false;
   final _searchController = TextEditingController();
 
+  // [NEW 2026-09-03] Agora RTC token override (for Agora "App ID + Token"
+  // projects). The app mints fresh tokens from the agora-token Edge Function,
+  // but an admin can override with a manual token here if the endpoint is down.
+  final _rtcTokenController = TextEditingController();
+  bool _savingRtcToken = false;
+
   @override
   void dispose() {
     _passwordController.dispose();
     _vpnConfigController.dispose();
     _aiTokenController.dispose();
+    _rtcTokenController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -519,6 +527,33 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  // ─── Agora RTC token override [NEW 2026-09-03] ───
+  Future<void> _saveRtcToken() async {
+    final token = _rtcTokenController.text.trim();
+    if (token.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('RTC token cannot be empty'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+    setState(() => _savingRtcToken = true);
+    try {
+      await AgoraConfig.setAdminRtcToken(token);
+      AgoraConfig.invalidateTokenCache();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Agora RTC token updated ✓'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save RTC token: $e'), backgroundColor: Colors.redAccent),
+      );
+    } finally {
+      if (mounted) setState(() => _savingRtcToken = false);
+    }
+  }
+
   // ─── Cash Out Management ───
   Future<void> _markCashOutPaid(int cashOutId) async {
     setState(() {
@@ -788,6 +823,58 @@ class _AdminScreenState extends State<AdminScreen> {
                               : const Icon(Icons.save_rounded),
                           label: const Text('Save AI Token'),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ─── Agora RTC Token [NEW 2026-09-03] ───
+                const SizedBox(height: 12),
+                GlassContainer(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.call_rounded, color: Colors.tealAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Agora RTC Token (optional override)',
+                              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text('The app mints a fresh Agora token automatically from the agora-token '
+                          'Edge Function. Only set this to force a specific RTC token '
+                          '(e.g. when the token endpoint is unavailable). Leave empty to use auto-minting.',
+                          style: GoogleFonts.poppins(color: Colors.white54, fontSize: 11)),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _rtcTokenController,
+                        obscureText: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: '007e… (optional)',
+                          hintStyle: const TextStyle(color: Colors.white30),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.06),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _savingRtcToken ? null : _saveRtcToken,
+                          icon: _savingRtcToken
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.save_rounded),
+                          label: const Text('Save RTC Token'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent),
                         ),
                       ),
                     ],

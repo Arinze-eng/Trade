@@ -35,6 +35,8 @@ import 'group_chat_room_screen.dart';
 import 'create_group_screen.dart';
 import 'archived_chats_screen.dart';
 
+import '../../../calls/call_screen.dart';
+
 import '../../status/screens/status_screen.dart';
 import './../../../models/user_tier.dart';
 import './../../../services/cdn_chat_business_service.dart';
@@ -87,6 +89,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   StreamSubscription<List<Map<String, dynamic>>>? _incomingSub;
   int _lastIncomingMessageId = 0;
   bool _isInChatRoom = false;
+  bool _dialogOpen = false; // [NEW 2026-09-03] guards the incoming-call dialog
 
   StreamSubscription? _threadRefreshSub;
 
@@ -177,17 +180,116 @@ class _ChatListScreenState extends State<ChatListScreen>
           final payload = s['payload'] as Map<String, dynamic>?;
           final isVideo = payload?['is_video'] == true;
           final fromId = (s['from_id'] ?? '').toString();
+          if (fromId.isEmpty || fromId == user.id) continue;
 
+          // [FIX 2026-09-03] Always surface the incoming call UI so the callee
+          // can ACCEPT or DECLINE from anywhere (previously only a notification
+          // was shown here, and tapping it did nothing — calls appeared to
+          // "not push"). Also trigger the high-priority notification.
           NotificationService.showIncomingCallNotification(
             title: isVideo ? 'Incoming Video Call' : 'Incoming Call',
             body: 'Someone is calling you on CDN-NETCHAT',
             payload: NotificationService.buildPayload(type: 'call', id: fromId),
           );
+          unawaited(_showIncomingCallDialog(fromId, isVideo));
         }
       }
     }, onError: (_) {
       // [FIX 2026-09-02] Realtime socket timeout must never crash the screen.
     });
+  }
+
+  /// [NEW 2026-09-03] Incoming-call accept/decline dialog for the chat list.
+  /// Shows ring UI (phone-style) so users can answer calls without having to
+  /// be inside the specific chat room.
+  Future<void> _showIncomingCallDialog(String fromId, bool isVideo) async {
+    if (!mounted || _dialogOpen) return;
+    _dialogOpen = true;
+    // Resolve the caller's display info (best-effort, non-blocking).
+    var callerName = fromId.substring(0, 8).toUpperCase();
+    Map<String, dynamic>? callerProfile;
+    try {
+      callerProfile = await _supabaseService
+          .getProfile(fromId)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
+    if (callerProfile != null && mounted) {
+      callerName = (callerProfile['display_name'] ?? callerProfile['username'] ?? callerName)
+          .toString();
+    }
+
+    if (!mounted) {
+      _dialogOpen = false;
+      return;
+    }
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF203A43),
+        title: Row(
+          children: [
+            Icon(isVideo ? Icons.videocam_rounded : Icons.call_rounded,
+                color: isVideo ? Colors.greenAccent : Colors.white, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(isVideo ? 'Incoming Video Call' : 'Incoming Voice Call',
+                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(callerName,
+                style: GoogleFonts.poppins(
+                    color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text('$callerName is calling…',
+                style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13)),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _dialogOpen = false;
+              _supabaseService.logMissedCall(
+                callerId: fromId,
+                receiverId: _supabaseService.currentUser?.id ?? '',
+                isVideo: isVideo,
+              );
+            },
+            icon: const Icon(Icons.call_end_rounded, color: Colors.redAccent),
+            label: const Text('Decline', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _dialogOpen = false;
+              final selfId = _supabaseService.currentUser?.id ?? '';
+              if (selfId.isEmpty) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CallScreen(
+                    selfId: selfId,
+                    peerId: fromId,
+                    isVideo: isVideo,
+                    isCaller: false,
+                    autoJoin: true,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.call_rounded, color: Colors.white),
+            label: const Text('Accept'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+          ),
+        ],
+      ),
+    );
+    _dialogOpen = false;
   }
 
   Future<void> _initApp() async {
@@ -378,6 +480,20 @@ class _ChatListScreenState extends State<ChatListScreen>
       if (group != null) {
         _openGroupChat(group);
       }
+    } else if (type == 'call' && id.isNotEmpty) {
+      // [FIX 2026-09-03] Tapping an incoming-call notification now opens the
+      // call UI as the callee (previously nothing happened).
+      final selfId = _supabaseService.currentUser?.id ?? '';
+      if (selfId.isEmpty) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CallScreen(
+            selfId: selfId,
+            peerId: id,
+            isCaller: false,
+          ),
+        ),
+      );
     }
   }
 

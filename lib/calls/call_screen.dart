@@ -201,8 +201,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   Future<void> _joinChannel() async {
     if (_joined || _joinStarted || _channelName == null) return;
     _joinStarted = true;
+    // [FIX 2026-09-03] Fetch a FRESH Agora token (Edge Function / app_settings
+    // / default). Previously an empty token was passed, which fails to
+    // authenticate against the certificate-enabled Agora project and left
+    // callers stuck on "Connecting…". Tokens are minted just-in-time so they
+    // never expire mid-call.
+    late final String token;
+    try {
+      token = await AgoraConfig.resolveRtcToken(
+        channel: _channelName!,
+        uid: widget.selfId.hashCode.toString(),
+      );
+    } catch (_) {
+      token = AgoraConfig.defaultRtcToken;
+    }
     await engine.joinChannel(
-      token: AgoraConfig.rtcToken, // '' = no-token auth mode (App ID only)
+      token: token,
       channelId: _channelName!,
       uid: 0,
       options: ChannelMediaOptions(
@@ -458,7 +472,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   Widget _buildControls() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _CtrlButton(
           icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
@@ -466,19 +480,20 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           color: _muted ? Colors.orangeAccent : Colors.white24,
           onTap: _toggleMute,
         ),
+        // Speaker toggle shown for BOTH audio and video calls so the user can
+        // always switch to loudspeaker (previously missing on video calls).
+        _CtrlButton(
+          icon: _speakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
+          label: 'Speaker',
+          color: _speakerOn ? AppColors.violet : Colors.white24,
+          onTap: _toggleSpeaker,
+        ),
         if (widget.isVideo)
           _CtrlButton(
             icon: Icons.cached_rounded,
             label: 'Flip',
             color: Colors.white24,
             onTap: _switchCamera,
-          )
-        else
-          _CtrlButton(
-            icon: _speakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
-            label: 'Speaker',
-            color: _speakerOn ? AppColors.violet : Colors.white24,
-            onTap: _toggleSpeaker,
           ),
         _CtrlButton(
           icon: Icons.call_end_rounded,

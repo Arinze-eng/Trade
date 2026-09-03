@@ -71,20 +71,24 @@ class NetchatAiService {
     return token;
   }
 
-  /// Admin: persist a new token into app_settings (UPDATE-only policy).
+  /// Admin: persist a new token into app_settings (INSERT-ON-CONFLICT so the
+  /// first save works even when the row does not exist yet — previously an
+  /// UPDATE-only save failed with "row missing", which is what the Admin panel
+  /// was showing).
   static Future<void> setAdminToken(String token) async {
-    // PATCH works on existing rows even when INSERT is RLS-blocked. Ensure
-    // the row exists first by attempting an update; empty result means the
-    // row was never created → surface a clear error.
+    final val = jsonEncode(token);
+    // INSERT ... ON CONFLICT (key) DO UPDATE — works for missing OR existing
+    // rows and is not blocked by RLS as long as the table exposes an
+    // authenticated UPDATE policy (or the anon/authenticated role can write).
     final res = await Supabase.instance.client
         .from('app_settings')
-        .update({'value': jsonEncode(token)})
-        .eq('key', settingsKey)
+        .upsert(
+          {'key': settingsKey, 'value': val},
+          onConflict: 'key',
+        )
         .select('key');
     if ((res as List).isEmpty) {
-      throw Exception(
-          'app_settings/$settingsKey row missing — run once in SQL editor:\n'
-          "insert into public.app_settings(key,value) values ('$settingsKey','\"\"') on conflict (key) do nothing;");
+      throw Exception('Failed to write Netchat AI token.');
     }
     invalidateCache();
   }

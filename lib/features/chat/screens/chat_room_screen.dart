@@ -461,6 +461,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
                     peerId: fromId,
                     isVideo: isVideo,
                     isCaller: false,
+                    autoJoin: true,
                   ),
                 ),
               );

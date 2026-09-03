@@ -1,5 +1,44 @@
 # Changelog
 
+## 3.5.1+26 (2026-09-03) - Agora Call Fixes, Incoming-Call UI & AI Token Fix
+### 🎧 Agora Voice/Video Calls — Stable & Connecting
+- **FIX**: Callers were stuck on "Connecting…" because the project uses Agora
+  "App ID + Token" (certificate) auth but an empty token was passed to
+  `joinChannel`. The app now resolves a valid RTC token at call time —
+  from `app_settings.agora_rtc_token` (admin-managed) → shipped default.
+- **NEW**: Optional `agora-token` Supabase Edge Function that mints fresh
+  tokens from the App Certificate so tokens never expire. Source ships in
+  `supabase/functions/agora-token`. (Off by default; enable via
+  `AgoraConfig.tokenEndpoint`.)
+- **NEW**: Admin panel "Agora RTC Token" section to override/update the token
+  in-app (no new APK needed when a token changes).
+- **FIX**: Speaker toggle now available on BOTH voice AND video calls
+  (previously video calls only had a camera-flip button).
+
+### 📞 Incoming Calls Now Actually Ring & Can Be Answered
+- **FIX**: A callee who was NOT inside the caller's chat room previously only
+  got a push notification; tapping it did nothing. The chat list now shows a
+  full incoming-call Accept/Decline dialog from anywhere, and tapping the call
+  notification opens the CallScreen as callee.
+- **FIX**: Accepting an incoming call joins Agora immediately (`autoJoin`),
+  removing a redundant second "Accept" tap.
+- **FIX**: Call signaling now surfaces the ring UI reliably across screens.
+
+### 🤖 Netchat AI & Admin Token Save
+- **FIX**: Admin could not save the AI token ("app_settings/netchat_ai_token
+  row missing"). `setAdminToken` now uses INSERT...ON CONFLICT, and the
+  `app_settings` table gained proper RLS INSERT/UPDATE/DELETE policies plus the
+  missing `netchat_ai_token` / `agora_rtc_token` rows (see
+  `supabase_app_settings_fix_migration.sql`).
+- **FIX**: AI token resolution discards empty/invalid stored values and falls
+  back to the working built-in default so the AI answers reliably.
+
+### 🗄️ Supabase (executed on live project)
+- Applied `app_settings` RLS + seed migration to `tlmyxuyqngkgwgjepeed`.
+- Set `agora_rtc_token` in `app_settings`.
+
+---
+
 ## 3.5.0+25 (2026-06-08) - Lag Fix, Contacts & Call Audio Overhaul
 ### 🚀 Performance (Zero-Lag Scroll)
 - **NEW**: `Debouncer` / `Throttler` / `Batcher` utility classes — centralize all debounce/throttle logic
