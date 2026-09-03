@@ -18,9 +18,11 @@
 -keep class io.supabase.** { *; }
 -dontwarn com.supabase.**
 
-# ===== Agora RTC SDK [ADD 2026-09-02] =====
--keep class io.agora.** { *; }
--dontwarn io.agora.**
+# ===== ZegoCloud Express RTC SDK [ADD 2026-09-03, replaced Agora] =====
+-keep class im.zego.** { *; }
+-dontwarn im.zego.**
+-keep class com.zego.** { *; }
+-dontwarn com.zego.**
 
 # ===== pdfx (Netchat AI PDF parsing) =====
 -keep class es.voghdev.pdfviewpager.** { *; }

@@ -3,11 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/admin_gate.dart';
-import '../services/agora_config.dart';
 import '../services/netchat_ai_service.dart';
 import '../services/supabase_service.dart';
 import '../services/vpn_manager.dart';
 import '../services/vpn_service.dart';
+import '../services/zego_config.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../widgets/glass_container.dart';
 
@@ -41,18 +41,20 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _savingAiToken = false;
   final _searchController = TextEditingController();
 
-  // [NEW 2026-09-03] Agora RTC token override (for Agora "App ID + Token"
-  // projects). The app mints fresh tokens from the agora-token Edge Function,
-  // but an admin can override with a manual token here if the endpoint is down.
-  final _rtcTokenController = TextEditingController();
-  bool _savingRtcToken = false;
+  // [NEW 2026-09-03] ZegoCloud AppID / AppSign override (replaces Agora).
+  // Calls use appID + AppSign (no per-call token). An admin can override the
+  // compiled defaults here; stored in Supabase `app_settings`.
+  final _zegoAppIdController = TextEditingController();
+  final _zegoAppSignController = TextEditingController();
+  bool _savingZegoConfig = false;
 
   @override
   void dispose() {
     _passwordController.dispose();
     _vpnConfigController.dispose();
     _aiTokenController.dispose();
-    _rtcTokenController.dispose();
+    _zegoAppIdController.dispose();
+    _zegoAppSignController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -527,30 +529,37 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
-  // ─── Agora RTC token override [NEW 2026-09-03] ───
-  Future<void> _saveRtcToken() async {
-    final token = _rtcTokenController.text.trim();
-    if (token.isEmpty) {
+  // ─── ZegoCloud AppID / AppSign override [NEW 2026-09-03] ───
+  Future<void> _saveZegoConfig() async {
+    final appIdStr = _zegoAppIdController.text.trim();
+    final appSign = _zegoAppSignController.text.trim();
+    if (appSign.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('RTC token cannot be empty'), backgroundColor: Colors.redAccent),
+        const SnackBar(content: Text('App Sign cannot be empty'), backgroundColor: Colors.redAccent),
       );
       return;
     }
-    setState(() => _savingRtcToken = true);
+    final appId = int.tryParse(appIdStr);
+    if (appId == null || appId <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('App ID must be a positive number'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+    setState(() => _savingZegoConfig = true);
     try {
-      await AgoraConfig.setAdminRtcToken(token);
-      AgoraConfig.invalidateTokenCache();
+      await ZegoConfig.saveAdminConfig(appId: appId, appSign: appSign);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Agora RTC token updated ✓'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('ZegoCloud config updated ✓'), backgroundColor: Colors.green),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save RTC token: $e'), backgroundColor: Colors.redAccent),
+        SnackBar(content: Text('Failed to save ZegoCloud config: $e'), backgroundColor: Colors.redAccent),
       );
     } finally {
-      if (mounted) setState(() => _savingRtcToken = false);
+      if (mounted) setState(() => _savingZegoConfig = false);
     }
   }
 
@@ -829,7 +838,7 @@ class _AdminScreenState extends State<AdminScreen> {
                   ),
                 ),
 
-                // ─── Agora RTC Token [NEW 2026-09-03] ───
+                // ─── ZegoCloud AppID / AppSign [NEW 2026-09-03] ───
                 const SizedBox(height: 12),
                 GlassContainer(
                   padding: const EdgeInsets.all(16),
@@ -840,23 +849,42 @@ class _AdminScreenState extends State<AdminScreen> {
                         children: [
                           const Icon(Icons.call_rounded, color: Colors.tealAccent, size: 18),
                           const SizedBox(width: 8),
-                          Text('Agora RTC Token (optional override)',
+                          Text('ZegoCloud Call Config',
                               style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text('The app mints a fresh Agora token automatically from the agora-token '
-                          'Edge Function. Only set this to force a specific RTC token '
-                          '(e.g. when the token endpoint is unavailable). Leave empty to use auto-minting.',
+                      Text('Calls use ZegoCloud (appID + appSign, no token). '
+                          'Set these to override the compiled defaults. Leave empty to use the built-in values.',
                           style: GoogleFonts.poppins(color: Colors.white54, fontSize: 11)),
                       const SizedBox(height: 10),
                       TextField(
-                        controller: _rtcTokenController,
+                        controller: _zegoAppIdController,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'App ID (e.g. 1113839402)',
+                          hintStyle: const TextStyle(color: Colors.white30),
+                          labelText: 'App ID',
+                          labelStyle: const TextStyle(color: Colors.white54),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.06),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _zegoAppSignController,
                         obscureText: true,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
-                          hintText: '007e… (optional)',
+                          hintText: '64-char App Sign',
                           hintStyle: const TextStyle(color: Colors.white30),
+                          labelText: 'App Sign',
+                          labelStyle: const TextStyle(color: Colors.white54),
                           filled: true,
                           fillColor: Colors.white.withOpacity(0.06),
                           border: OutlineInputBorder(
@@ -869,11 +897,11 @@ class _AdminScreenState extends State<AdminScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: _savingRtcToken ? null : _saveRtcToken,
-                          icon: _savingRtcToken
+                          onPressed: _savingZegoConfig ? null : _saveZegoConfig,
+                          icon: _savingZegoConfig
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.save_rounded),
-                          label: const Text('Save RTC Token'),
+                          label: const Text('Save ZegoCloud Config'),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent),
                         ),
                       ),

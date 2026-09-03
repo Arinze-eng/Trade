@@ -1,6 +1,6 @@
 name: cdn_chatroom
 description: A premium offline chatting app with in-app VPN, Supabase serverless, and Firebase push notifications.
-version: 3.5.1+26
+version: 3.6.0+27
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
@@ -17,13 +17,16 @@ dependencies:
   firebase_core: ^3.6.0
   firebase_messaging: ^15.1.0
 
-  # WebRTC for calls — v0.12 has stable audio session handling
+  # WebRTC for calls — provided transitively by Zego; kept for audio routing
   flutter_webrtc: ^0.12.3
 
-  # Agora RTC SDK — production-grade audio/video calling (App ID configured
-  # in lib/services/agora_config.dart). Media flows through Agora's infra;
-  # Supabase is only used for ring/accept signaling.
-  agora_rtc_engine: 6.5.3
+  # ZegoCloud Express RTC SDK — production-grade audio/video calling (App ID
+  # + App Sign configured in lib/services/zego_config.dart, admin-editable).
+  # Media flows through ZegoCloud's global SDNs (reliable over VPN); Supabase
+  # is only used for ring/accept/reject/hangup signaling + call history.
+  # [REPLACED Agora 2026-09-03] agora_rtc_engine removed — Zego is simpler:
+  #   no per-call token minting (uses appID + appSign directly).
+  zego_express_engine: ^3.25.0
 
   # Netchat AI PDF text extraction (pure-Dart, no native deps)
   syncfusion_flutter_pdf: ^27.2.5

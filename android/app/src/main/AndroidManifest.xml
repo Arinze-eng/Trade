@@ -17,7 +17,7 @@
 
     <!-- Media features -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- [ADD 2026-09-02] Agora audio/video calls -->
+    <!-- [ADD 2026-09-02] Media permissions for audio/video calls (ZegoCloud) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

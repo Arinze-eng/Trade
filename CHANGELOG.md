@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.6.0+27 (2026-09-03) - ZegoCloud Calls (Agora removed)
+### 🎧 Voice/Video Calls — Switched from Agora to ZegoCloud Express
+- **CHANGE**: Removed `agora_rtc_engine` entirely and replaced the media layer
+  with ZegoCloud `zego_express_engine` (`lib/calls/call_screen.dart` rewritten).
+  ZegoCloud routes media through its own global SDNs (reliable over VPN) and
+  uses `appID` + `appSign` directly — **no per-call token minting**, no token
+  expiry, and no `agora-token` Edge Function.
+- **NEW**: `lib/services/zego_config.dart` holds compiled defaults
+  (AppID `1113839402`) and reads admin overrides from `app_settings`
+  (`zego_app_id` / `zego_app_sign`).
+- **NEW**: Admin panel "ZegoCloud Call Config" section (replaces the old Agora
+  RTC token field) to change AppID/AppSign in-app without shipping a new build.
+- **CHANGE**: Signaling (ring/accept/reject/hang-up) and call history remain on
+  the existing Supabase `call_signals` / `call_history` tables — unchanged.
+- **REMOVED**: `supabase/functions/agora-token` edge function and
+  `lib/services/agora_config.dart`.
+- **MIGRATION**: `supabase_zego_config_migration.sql` seeds the new
+  `zego_app_id` / `zego_app_sign` keys idempotently.
+
 ## 3.5.1+26 (2026-09-03) - Agora Call Fixes, Incoming-Call UI & AI Token Fix
 ### 🎧 Agora Voice/Video Calls — Stable & Connecting
 - **FIX**: Callers were stuck on "Connecting…" because the project uses Agora

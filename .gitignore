@@ -6,6 +6,9 @@ build/
 
 # Android
 android/local.properties
+android/.gradle/
+android/gradle/wrapper/gradle-wrapper.jar
+android/.cxx/
 android/app/src/main/java/io/flutter/plugins/
 
 # IDE

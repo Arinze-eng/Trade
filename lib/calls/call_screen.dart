@@ -1,27 +1,28 @@
 import 'dart:async';
 
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import '../services/agora_config.dart';
-import '../shared/theme/app_colors.dart';
-import '../services/supabase_service.dart';
-import 'supabase_signaling_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:zego_express_engine/zego_express_engine.dart';
 
-/// [REWRITE 2026-09-02] Agora-powered audio/video calls.
+import '../services/supabase_service.dart';
+import '../services/zego_config.dart';
+import '../shared/theme/app_colors.dart';
+import 'supabase_signaling_client.dart';
+
+/// [REWRITE 2026-09-03] ZegoCloud Express-powered audio/video calls.
 ///
-/// Why Agora instead of raw WebRTC-over-Supabase-signaling:
-///   • Supabase has no media server — the old flow relied on P2P ICE, which
-///     fails behind VPN/NAT (this app ships a VPN!) → one-way audio / no connect.
-///   • Agora routes media through its own global SDNs: reliable even over VPN,
-///     with echo cancellation, jitter buffering and adaptive bitrate built in.
+/// Replaces the previous Agora integration. Why ZegoCloud:
+///   • ZegoCloud routes media through its own global SDNs — reliable even over
+///     VPN/NAT (this app ships a VPN!). Same architecture class as Agora.
+///   • Much simpler auth: uses appID + AppSign directly, NO per-call token
+///     minting (no agora-token Edge Function, no expiring token problems).
+///   • AppID/AppSign are admin-editable via `app_settings`.
 ///
 /// Signaling (ring / accept / reject / hang-up) still uses the existing
-/// `call_signals` Supabase table — that part works fine and is kept.
+/// `call_signals` Supabase table — that flow is unchanged and kept.
 class CallScreen extends StatefulWidget {
   final String selfId;
   final String peerId;
@@ -48,16 +49,24 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   final SupabaseService _supabaseService = SupabaseService();
   late final SupabaseSignalingClient _sig;
 
-  RtcEngine engine = createAgoraRtcEngine();
+  ZegoExpressEngine get engine => ZegoExpressEngine.instance;
 
-  String? _channelName;
-  bool _joined = false;
+  String? _roomID;
+  String? _publishStreamID; // local publisher stream
+  String? _remoteStreamID; // remote peer stream
+
+  // Canvas views (platform views for rendering)
+  int? _localViewID;
+  int? _remoteViewID;
+  Widget? _localVideoView;
+  Widget? _remoteVideoView;
+
+  bool _roomJoined = false;
   bool _remoteJoined = false;
-  int _remoteUid = 0;
 
   bool _muted = false;
   bool _speakerOn = false;
-  bool _cameraFront = false; // Agora camera direction flag (UI state)
+  bool _cameraFront = true; // true = front camera
 
   bool _connected = false; // both peers present
   DateTime? _callStartTime;
@@ -74,7 +83,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _channelName = AgoraConfig.channelFor(widget.selfId, widget.peerId);
+    _roomID = ZegoConfig.roomFor(widget.selfId, widget.peerId);
     _sig = SupabaseSignalingClient(
         client: Supabase.instance.client,
         selfId: widget.selfId,
@@ -85,10 +94,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant CallScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Callee answered the in-screen dialog → join Agora now.
-    if (widget.autoJoin && !oldWidget.autoJoin && !_joined && !_joinStarted) {
+    // Callee answered the in-screen dialog → join Zego now.
+    if (widget.autoJoin && !oldWidget.autoJoin && !_roomJoined && !_joinStarted) {
       _joinStarted = true;
-      unawaited(_joinChannel());
+      unawaited(_joinRoom());
     }
   }
 
@@ -102,68 +111,119 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Agora keeps media alive in background on Android (mic service type).
+    // Zego keeps media alive in background on Android (mic service type).
   }
 
+  /// Create engine + prepare canvas views + wire events, then join.
   Future<void> _init() async {
     try {
       await _requestPermissions();
 
-      await engine.initialize(RtcEngineContext(appId: AgoraConfig.appId));
+      // Load admin-overridable credentials.
+      final cfg = await ZegoConfig.resolveConfig();
 
-      await engine.setChannelProfile(ChannelProfileType.channelProfileCommunication);
-      await engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+      // Create / re-create the engine (SDK requires one instance at a time).
+      await ZegoExpressEngine.createEngineWithProfile(
+        ZegoEngineProfile(
+          cfg.appId,
+          ZegoScenario.Default,
+          appSign: cfg.appSign,
+        ),
+      );
 
+      // Local preview canvas.
       if (widget.isVideo) {
-        await engine.enableVideo();
-        await engine.startPreview();
-      } else {
-        await engine.enableAudio();
-        // Voice-call friendly settings: force speaker by default for audio calls.
-        await engine.setEnableSpeakerphone(true);
-        _speakerOn = true;
+        int? tmpViewID;
+        final viewWidget = await engine.createCanvasView((viewID) {
+          tmpViewID = viewID;
+          if (mounted) {
+            setState(() => _localViewID = viewID);
+          }
+          unawaited(_startLocalPreview(viewID));
+        });
+        if (mounted) {
+          setState(() {
+            _localVideoView = viewWidget;
+            if (tmpViewID != null) _localViewID = tmpViewID;
+          });
+        }
       }
 
-      engine.registerEventHandler(RtcEngineEventHandler(
-        onJoinChannelSuccess: (connection, elapsed) {
-          if (!mounted) return;
-          setState(() => _joined = true);
-          if (widget.isCaller) {
-            // Tell callee we're in the channel and ringing.
-            unawaited(_sig.send(
-              toId: widget.peerId,
-              type: 'call_offer',
-              payload: {'is_video': widget.isVideo, 'channel': _channelName},
-            ));
-          } else {
-            // Callee answering: announce presence so caller sees us join.
-            unawaited(_sig.send(
-              toId: widget.peerId,
-              type: 'accept',
-              payload: {'is_video': widget.isVideo, 'channel': _channelName},
-            ));
+      // ── Event handlers (static callbacks on ZegoExpressEngine) ──
+      // Room state (join success/failure/disconnect).
+      ZegoExpressEngine.onRoomStateUpdate =
+          (roomID, state, errorCode, extendedData) {
+        if (!mounted) return;
+        if (errorCode != 0) {
+          debugPrint('[Zego] room state error: $errorCode, $extendedData');
+        }
+        if (state == ZegoRoomState.Connected) {
+          setState(() => _roomJoined = true);
+        }
+      };
+
+      // Remote user joined/left the room → drives connect/end states.
+      ZegoExpressEngine.onRoomUserUpdate =
+          (roomID, updateType, userList) {
+        if (!mounted) return;
+        for (final u in userList) {
+          if (u.userID == widget.peerId) {
+            if (updateType == ZegoUpdateType.Add) {
+              // Peer is in the room → start playing their stream.
+              setState(() {
+                _remoteJoined = true;
+                _connected = true;
+                _callStartTime ??= DateTime.now();
+              });
+              _startDurationTimer();
+              unawaited(_startPlayingRemote());
+            } else if (updateType == ZegoUpdateType.Delete) {
+              _endCall(remoteHungUp: true);
+            }
           }
-        },
-        onUserJoined: (RtcConnection connection, remoteUid, elapsed) {
-          if (!mounted) return;
+        }
+      };
+
+      // Remote stream became available / playback ended.
+      ZegoExpressEngine.onRoomStreamUpdate =
+          (roomID, updateType, streamList, extendedData) {
+        if (!mounted) return;
+        for (final s in streamList) {
+          if (s.user.userID == widget.peerId) {
+            if (updateType == ZegoUpdateType.Add && _remoteStreamID == null) {
+              _remoteStreamID = s.streamID;
+              if (_remoteJoined) unawaited(_startPlayingRemote());
+            } else if (updateType == ZegoUpdateType.Delete) {
+              _endCall(remoteHungUp: true);
+            }
+          }
+        }
+      };
+
+      // Playback state changes.
+      ZegoExpressEngine.onPlayerStateUpdate =
+          (streamID, state, errorCode, extendedData) {
+        if (!mounted) return;
+        if (errorCode != 0) {
+          debugPrint('[Zego] player error $errorCode for $streamID');
+        }
+        if (state == ZegoPlayerState.Playing) {
           setState(() {
             _remoteJoined = true;
-            _remoteUid = remoteUid;
             _connected = true;
             _callStartTime ??= DateTime.now();
           });
           _startDurationTimer();
-        },
-        onUserOffline: (RtcConnection connection, remoteUid, reason) {
-          if (!mounted) return;
-          if (_remoteUid == remoteUid) {
-            _endCall(remoteHungUp: true);
-          }
-        },
-        onError: (err, msg) {
-          debugPrint('[Agora] error $err $msg');
-        },
-      ));
+        }
+      };
+
+      // Publish state changes (diagnostics).
+      ZegoExpressEngine.onPublisherStateUpdate =
+          (streamID, state, errorCode, extendedData) {
+        if (errorCode != 0) {
+          debugPrint('[Zego] publish error $errorCode for $streamID');
+        }
+      };
 
       // ── Signaling: hang-up / decline handling (Supabase realtime) ──
       await _sig.connect(onSignal: (m) async {
@@ -182,12 +242,18 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         }
       });
 
+      // For audio-only calls, force speakerphone on by default.
+      if (!widget.isVideo) {
+        await engine.setAudioRouteToSpeaker(true);
+        _speakerOn = true;
+      }
+
       // Join immediately (caller rings; callee joins after tapping Answer).
       if (!widget.isCaller && !widget.autoJoin) {
         // Callee dialog path — wait for answer before joining.
         return;
       }
-      await _joinChannel();
+      await _joinRoom();
     } catch (e) {
       if (mounted) {
         setState(() {});
@@ -198,37 +264,84 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _joinChannel() async {
-    if (_joined || _joinStarted || _channelName == null) return;
-    _joinStarted = true;
-    // [FIX 2026-09-03] Fetch a FRESH Agora token (Edge Function / app_settings
-    // / default). Previously an empty token was passed, which fails to
-    // authenticate against the certificate-enabled Agora project and left
-    // callers stuck on "Connecting…". Tokens are minted just-in-time so they
-    // never expire mid-call.
-    late final String token;
+  Future<void> _startLocalPreview(int viewID) async {
     try {
-      token = await AgoraConfig.resolveRtcToken(
-        channel: _channelName!,
-        uid: widget.selfId.hashCode.toString(),
-      );
-    } catch (_) {
-      token = AgoraConfig.defaultRtcToken;
-    }
-    await engine.joinChannel(
-      token: token,
-      channelId: _channelName!,
-      uid: 0,
-      options: ChannelMediaOptions(
-        channelProfile: ChannelProfileType.channelProfileCommunication,
-        clientRoleType: ClientRoleType.clientRoleBroadcaster,
-        publishMicrophoneTrack: true,
-        publishCameraTrack: widget.isVideo,
-        autoSubscribeAudio: true,
-        autoSubscribeVideo: widget.isVideo,
-        enableAudioRecordingOrPlayout: true,
+      await engine.startPreview(canvas: ZegoCanvas.view(viewID));
+    } catch (_) {}
+  }
+
+  Future<void> _joinRoom() async {
+    if (_roomJoined || _joinStarted || _roomID == null) return;
+    _joinStarted = true;
+
+    final user = ZegoConfig.localUser(widget.selfId);
+    final res = await engine.loginRoom(
+      _roomID!,
+      user,
+      config: ZegoRoomConfig(
+        0, // maxMemberCount (0 = unlimited)
+        true, // isUserStatusNotify → receive onRoomUserUpdate
+        '', // token (not needed in basic appID+AppSign mode)
       ),
     );
+    if (res.errorCode != 0) {
+      debugPrint('[Zego] loginRoom error: ${res.errorCode} ${res.extendedData}');
+    } else {
+      setState(() => _roomJoined = true);
+    }
+
+    // Setup local publish.
+    _publishStreamID = ZegoConfig.streamIdFor(_roomID!, widget.selfId);
+    if (widget.isVideo) {
+      await engine.enableCamera(true);
+      if (_localViewID != null) {
+        await _startLocalPreview(_localViewID!);
+      }
+    } else {
+      await engine.enableCamera(false);
+    }
+    await engine.muteMicrophone(false);
+    await engine.startPublishingStream(_publishStreamID!);
+
+    // Signal the peer.
+    if (widget.isCaller) {
+      unawaited(_sig.send(
+        toId: widget.peerId,
+        type: 'call_offer',
+        payload: {'is_video': widget.isVideo, 'channel': _roomID},
+      ));
+    } else {
+      // Callee answering: announce presence so caller sees us.
+      unawaited(_sig.send(
+        toId: widget.peerId,
+        type: 'accept',
+        payload: {'is_video': widget.isVideo, 'channel': _roomID},
+      ));
+    }
+  }
+
+  Future<void> _startPlayingRemote() async {
+    final streamID = _remoteStreamID;
+    if (streamID == null || !mounted) return;
+    if (_remoteViewID == null && widget.isVideo) {
+      await engine.createCanvasView((viewID) {
+        if (!mounted) return;
+        setState(() => _remoteViewID = viewID);
+        unawaited(engine.startPlayingStream(
+          streamID,
+          canvas: ZegoCanvas.view(viewID),
+        ));
+      }).then((widget) {
+        if (mounted) setState(() => _remoteVideoView = widget);
+      });
+    } else {
+      await engine.startPlayingStream(
+        streamID,
+        canvas: widget.isVideo && _remoteViewID != null
+            ? ZegoCanvas.view(_remoteViewID!)
+            : null,
+      );
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -254,20 +367,26 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   Future<void> _toggleMute() async {
     _muted = !_muted;
-    await engine.muteLocalAudioStream(_muted);
+    await engine.muteMicrophone(_muted);
     if (mounted) setState(() {});
   }
 
   Future<void> _toggleSpeaker() async {
     _speakerOn = !_speakerOn;
-    await engine.setEnableSpeakerphone(_speakerOn);
+    if (_speakerOn) {
+      await engine.setAudioRouteToSpeaker(true);
+    } else {
+      // route back to earpiece
+      await engine.setAudioRouteToSpeaker(false);
+    }
     if (mounted) setState(() {});
   }
 
   Future<void> _switchCamera() async {
     if (!widget.isVideo) return;
-    await engine.switchCamera();
-    if (mounted) setState(() => _cameraFront = !_cameraFront);
+    _cameraFront = !_cameraFront;
+    await engine.useFrontCamera(_cameraFront);
+    if (mounted) setState(() {});
   }
 
   Future<void> _hangup() async {
@@ -298,7 +417,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
   Future<void> _answer() async {
     setState(() => _isCalleeWaiting = false);
-    await _joinChannel();
+    await _joinRoom();
   }
 
   bool _ending = false;
@@ -347,10 +466,30 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       await _sig.close();
     } catch (_) {}
     try {
-      await engine.leaveChannel();
+      if (_publishStreamID != null) {
+        await engine.stopPublishingStream();
+      }
     } catch (_) {}
     try {
-      await engine.release();
+      if (_remoteStreamID != null) {
+        await engine.stopPlayingStream(_remoteStreamID!);
+      }
+    } catch (_) {}
+    try {
+      if (_roomID != null) {
+        await engine.logoutRoom();
+      }
+    } catch (_) {}
+    try {
+      if (_localViewID != null) {
+        await engine.destroyCanvasView(_localViewID!);
+      }
+      if (_remoteViewID != null) {
+        await engine.destroyCanvasView(_remoteViewID!);
+      }
+    } catch (_) {}
+    try {
+      await ZegoExpressEngine.destroyEngine();
     } catch (_) {}
   }
 
@@ -373,14 +512,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           fit: StackFit.expand,
           children: [
             // Remote video (video calls only)
-            if (widget.isVideo && _remoteJoined)
-              AgoraVideoView(
-                controller: VideoViewController.remote(
-                  rtcEngine: engine,
-                  canvas: VideoCanvas(uid: _remoteUid),
-                  connection: RtcConnection(channelId: _channelName ?? ''),
-                ),
-              ).animate().fadeIn(duration: 300.ms)
+            if (widget.isVideo && _remoteJoined && _remoteVideoView != null)
+              SizedBox.expand(child: _remoteVideoView!).animate().fadeIn(duration: 300.ms)
             else
               Container(
                 decoration: const BoxDecoration(
@@ -393,7 +526,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               ),
 
             // Local preview PiP (video calls)
-            if (widget.isVideo)
+            if (widget.isVideo && _localVideoView != null)
               Positioned(
                 right: 16,
                 top: MediaQuery.of(context).padding.top + 80,
@@ -401,12 +534,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 height: 150,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
-                  child: AgoraVideoView(
-                    controller: VideoViewController(
-                      rtcEngine: engine,
-                      canvas: const VideoCanvas(uid: 0),
-                    ),
-                  ),
+                  child: _localVideoView!,
                 ),
               ),
 
@@ -456,7 +584,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final s = _callDuration.inSeconds % 60;
       return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     }
-    if (widget.isCaller) return _joined ? 'Ringing…' : 'Connecting…';
+    if (widget.isCaller) return _roomJoined ? 'Ringing…' : 'Connecting…';
     return 'Joining…';
   }
 
@@ -480,8 +608,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           color: _muted ? Colors.orangeAccent : Colors.white24,
           onTap: _toggleMute,
         ),
-        // Speaker toggle shown for BOTH audio and video calls so the user can
-        // always switch to loudspeaker (previously missing on video calls).
+        // Speaker toggle shown for BOTH audio and video calls.
         _CtrlButton(
           icon: _speakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
           label: 'Speaker',
