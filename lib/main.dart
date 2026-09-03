@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import 'core/vpn_splash_screen.dart';
 import 'services/vpn_manager.dart';
+import 'services/vpn_service.dart';
 import 'services/notification_service.dart';
 import 'services/background_message_poller.dart';
 import 'services/supabase_service.dart';
@@ -21,10 +22,17 @@ void main() async {
 
   // VPN auto-start FIRST (before anything else) — fire and forget
   // [UPDATE 2026-06-08] Removed ignoreAccessCheck — VPN is PRO only
+  // [FIX 2026-09-03] Respect the "VPN off" flag: if the user disabled VPN,
+  // never trigger auto-start at all. The flag is also checked inside
+  // autoStartOnAppOpen(), but we skip the work here so the VPN splash never
+  // shows "Initializing VPN…" when it's turned off.
   try {
     await VpnManager.instance.syncRemoteConfig();
   } catch (_) {}
-  unawaited(VpnManager.instance.autoStartOnAppOpen());
+  final vpnOff = await VpnService.isVpnDisabled();
+  if (!vpnOff) {
+    unawaited(VpnManager.instance.autoStartOnAppOpen());
+  }
 
   // ── FASTER LOADING: Initialize Firebase and Supabase in parallel ──
   await Future.wait([

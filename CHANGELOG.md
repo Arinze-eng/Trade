@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.1+28 (2026-09-03) - AI File Fixes & VPN-Off Fix
+### 🤖 Netchat AI — File Attachments Now Work (image / PDF / ZIP)
+- **FIX**: Attachments (images, PDFs) were failing because the whole base64
+  payload was sent as a URL query parameter (`GET ?payload=<json>`), which broke
+  past URL-length limits. Now sends the chat payload as a **POST JSON body**
+  (token stays in the URL) — no length ceiling for large files.
+- **FIX**: Rotated the built-in PowerX AI token to the active key
+  (`px_SbvVuEj...`).
+- **NEW**: ZIP / TAR archive support — readable text entries are inlined,
+  otherwise the archive listing is sent so the model can work with it. No more
+  "unsupported type" for archives.
+### 🔌 VPN — Doesn't Trigger When Turned Off
+- **FIX**: The launch VPN splash no longer shows "Initializing VPN…" or attempts
+  a connection when the user has the VPN switched off (`vpn_disabled` flag) —
+  the app now boots straight to the normal splash.
+- **FIX**: `main()` no longer kicks off VPN auto-start when the VPN-off flag is
+  set.
+
 ## 3.6.0+27 (2026-09-03) - ZegoCloud Calls (Agora removed)
 ### 🎧 Voice/Video Calls — Switched from Agora to ZegoCloud Express
 - **CHANGE**: Removed `agora_rtc_engine` entirely and replaced the media layer

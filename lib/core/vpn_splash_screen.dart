@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'splash_screen.dart';
 import '../services/vpn_manager.dart';
+import '../services/vpn_service.dart';
 
 /// VPN Splash Screen — the VERY FIRST screen shown when the app launches.
 ///
@@ -41,6 +42,18 @@ class _VpnSplashScreenState extends State<VpnSplashScreen>
   Future<void> _waitForVpnAndNavigate() async {
     final vpnManager = VpnManager.instance;
 
+    // [FIX 2026-09-03] If VPN is turned OFF by the user (vpn_disabled flag),
+    // do NOT show the "Initializing VPN…" gate or attempt any VPN connection.
+    // The user explicitly switched VPN off — the app must start normally.
+    bool vpnDisabled = false;
+    try {
+      vpnDisabled = await VpnService.isVpnDisabled();
+    } catch (_) {}
+    if (vpnDisabled) {
+      _navigateToSplash();
+      return;
+    }
+
     // Listen to VPN state changes
     vpnManager.addListener(_onVpnStateChanged);
     _onVpnStateChanged(); // Check initial state
@@ -51,7 +64,7 @@ class _VpnSplashScreenState extends State<VpnSplashScreen>
     // Wait for VPN to connect or timeout after 5 seconds
     // ── FASTER LOADING: Reduced from 8s to 5s timeout ──
     // VPN auto-start was already triggered in main.dart BEFORE this screen renders
-    final connected = await _waitForVpnConnection(timeout: const Duration(seconds: 5));
+    await _waitForVpnConnection(timeout: const Duration(seconds: 5));
 
     vpnManager.removeListener(_onVpnStateChanged);
 

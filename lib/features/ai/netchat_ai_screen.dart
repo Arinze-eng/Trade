@@ -249,7 +249,7 @@ class _NetchatAiScreenState extends State<NetchatAiScreen> {
                   IconButton.filledTonal(
                     onPressed: _pickFiles,
                     icon: const Icon(Icons.attach_file_rounded),
-                    tooltip: 'Attach image / PDF / text file',
+                    tooltip: 'Attach image / PDF / ZIP / text file',
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -311,7 +311,7 @@ class _NetchatAiScreenState extends State<NetchatAiScreen> {
             const SizedBox(height: 8),
             Text(
               'Ask questions, translate, summarise, code, or attach files:\n'
-              'images 🖼️, PDFs 📄 and text documents 📝 are analysed instantly.',
+              'images 🖼️, PDFs 📄, ZIPs 📦 and text documents 📝 are analysed instantly.',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13, height: 1.5),
             ),

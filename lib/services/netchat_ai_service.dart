@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 
+import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,15 +11,22 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 /// [NEW 2026-09-02] Netchat AI — chat with the PowerX agent and analyse files.
 ///
-/// Transport (verified live): GET
-///   https://minis-yzdb.onrender.com/v1/chat/completions
-///     ?token=<TOKEN>
-///     &payload={"model":"powerx-agent","messages":[...]}
+/// Transport (verified live): POST
+///   https://minis-yzdb.onrender.com/v1/chat/completions?token=<TOKEN>
+///   with JSON body {"model":"powerx-agent","messages":[...]}
+///
+/// [FIX 2026-09-03] Switched from GET ?payload=<json> to POST with the payload
+/// in the body. The old approach put the whole base64 image/PDF into the URL,
+/// which broke large attachments (image / PDF / ZIP "not working"). Body-based
+/// transport has no URL-length ceiling for large files.
 ///
 /// Multimodal file support uses the content-part format:
 ///   {"role":"user","content":[
 ///      {"type":"text","text":"What is in this image?"},
 ///      {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]}
+///
+/// Supported attachments: images (jpg/png/webp/gif/bmp), PDF (text-extracted),
+/// plain-text, and ZIP/TAR archives (readable entries inlined + listing).
 ///
 /// The API token can be overridden by the admin from the Admin Panel; it is
 /// stored in the Supabase `app_settings` table under key `netchat_ai_token`.
@@ -27,8 +35,9 @@ class NetchatAiService {
 
   static const String baseUrl =
       'https://minis-yzdb.onrender.com/v1/chat/completions';
+  // [UPDATE 2026-09-03] Active PowerX token (rotated by owner).
   static const String defaultToken =
-      'px_DfwhyZiC3ZW2nde8U18fQZGqHbVzunOTUU1ijdq5';
+      'px_SbvVuEjLprdhclq03B8qrVaHGWZPFo04H0u9vWDT';
   static const String model = 'powerx-agent';
   static const String settingsKey = 'netchat_ai_token';
 
@@ -128,12 +137,25 @@ class NetchatAiService {
     });
 
     final payload = jsonEncode({'model': model, 'messages': messages});
-    final uri = Uri.parse('$baseUrl?token=${Uri.encodeComponent(token)}'
-        '&payload=${Uri.encodeComponent(payload)}');
+
+    // [FIX 2026-09-03] Send the payload as a JSON POST BODY rather than a URL
+    // query parameter. The previous GET ?token=...&payload=<json> approach put
+    // the entire (potentially multi-MB) base64 image/document into the URL,
+    // which blew past URL-length limits → "not working / error" for image, PDF
+    // and ZIP attachments. This follows the endpoint's documented chat payload
+    // shape: {"model","messages":[...]}.
+    final uri = Uri.parse('$baseUrl?token=${Uri.encodeComponent(token)}');
 
     late http.Response resp;
     try {
-      resp = await http.get(uri).timeout(timeout);
+      resp = await http
+          .post(uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: payload)
+          .timeout(timeout);
     } on SocketException {
       rethrow;
     } on TimeoutException {
@@ -164,13 +186,18 @@ class NetchatAiService {
     'txt', 'md', 'csv', 'json', 'log', 'xml', 'yaml', 'yml', 'html', 'dart',
     'js', 'ts', 'py', 'java', 'kt', 'css', 'sql', 'sh',
   };
+  static const _archiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
   static const maxImageBytes = 4 * 1024 * 1024; // 4 MB raw
   static const maxDocChars = 12000; // cap extracted text size
+  static const maxZipBytes = 15 * 1024 * 1024; // 15 MB raw archive
+  static const maxZipEntries = 50; // cap in-archive entries
 
   /// Convert picked files into AI content parts.
   /// Returns (parts, notesForUser). Images become data URIs; PDFs get their
-  /// text extracted; plain-text files are inlined (truncated). Unsupported
-  /// types are skipped with a note.
+  /// text extracted; plain-text files are inlined (truncated). ZIP/archive
+  /// files are inspected — readable text entries are inlined (truncated) or
+  /// the file listing is summarised so the model can work with them. Broken or
+  /// unsupported types are skipped with a note (never a hard failure).
   static Future<({List<Map<String, dynamic>> parts, List<String> notes})>
       buildFileParts(List<File> files) async {
     final parts = <Map<String, dynamic>>[];
@@ -221,6 +248,15 @@ class NetchatAiService {
             'type': 'text',
             'text': '[File: $name]\n${_cap(raw)}',
           });
+        } else if (_archiveExts.contains(ext)) {
+          // [NEW 2026-09-03] ZIP/archive support: don't silently drop them.
+          if (size > maxZipBytes) {
+            notes.add('$name skipped (>15MB archive)');
+            continue;
+          }
+          final built = await _buildArchivePart(f, name, ext);
+          if (built.part != null) parts.add(built.part!);
+          if (built.note != null) notes.add(built.note!);
         } else {
           notes.add('$name skipped (unsupported type .$ext)');
         }
@@ -229,6 +265,97 @@ class NetchatAiService {
       }
     }
     return (parts: parts, notes: notes);
+  }
+
+  /// Inspect a ZIP/TAR archive and turn it into a single text part: readable
+  /// text entries are inlined (capped), everything else becomes a listing.
+  static Future<({Map<String, dynamic>? part, String? note})>
+      _buildArchivePart(File f, String name, String ext) async {
+    try {
+      final bytes = await f.readAsBytes();
+      final entries = <(String, String)>[]; // (entryName, text)
+
+      if (ext == 'zip') {
+        final archive = ZipDecoder().decodeBytes(bytes);
+        var count = 0;
+        for (final entry in archive) {
+          if (count >= maxZipEntries) break;
+          if (!entry.isFile) continue;
+          count++;
+          final entryExt = p.extension(entry.name)
+              .replaceFirst('.', '')
+              .toLowerCase();
+          if (_textExts.contains(entryExt)) {
+            final text = utf8.decode(entry.content as List<int>,
+                allowMalformed: true);
+            if (text.trim().isNotEmpty) entries.add((entry.name, text));
+          }
+        }
+      } else if (ext == 'tar' || ext == 'gz') {
+        final archive = TarDecoder().decodeBytes(bytes);
+        var count = 0;
+        for (final entry in archive) {
+          if (count >= maxZipEntries) break;
+          if (!entry.isFile) continue;
+          count++;
+          final entryExt = p.extension(entry.name)
+              .replaceFirst('.', '')
+              .toLowerCase();
+          if (_textExts.contains(entryExt)) {
+            final text = utf8.decode(entry.content as List<int>,
+                allowMalformed: true);
+            if (text.trim().isNotEmpty) entries.add((entry.name, text));
+          }
+        }
+      } else {
+        // rar / 7z — the archive package can't decode these on-device. Surface
+        // the filename instead of silently dropping it.
+        return (
+          part: {
+            'type': 'text',
+            'text': '[Archive file: $name]\n($ext archive provided — contents '
+                'cannot be decoded on-device; infer intent from the filename.)',
+          },
+          note: null,
+        );
+      }
+
+      if (entries.isEmpty) {
+        // Nothing readable inlined → give the model a listing.
+        List<String> listing;
+        if (ext == 'zip') {
+          listing = [for (final e in ZipDecoder().decodeBytes(bytes))
+            if (e.isFile) p.basename(e.name)];
+        } else {
+          listing = [for (final e in TarDecoder().decodeBytes(bytes))
+            if (e.isFile) p.basename(e.name)];
+        }
+        if (listing.length > maxZipEntries) {
+          listing = listing.sublist(0, maxZipEntries);
+        }
+        return (
+          part: {
+            'type': 'text',
+            'text': '[Archive file: $name]\n'
+                'Entry listing: ${listing.isEmpty ? '(empty archive)' : listing.join(', ')}',
+          },
+          note: null,
+        );
+      }
+
+      final body = entries
+          .map((e) => '[Entry: ${e.$1}]\n${_cap(e.$2)}')
+          .join('\n\n');
+      return (
+        part: {'type': 'text', 'text': '[Archive file: $name]\n${_cap(body)}'},
+        note: null,
+      );
+    } catch (e) {
+      return (
+        part: null,
+        note: '$name could not be read as an archive ($e)',
+      );
+    }
   }
 
   static String _cap(String s) =>
