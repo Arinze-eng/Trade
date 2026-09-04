@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -79,6 +80,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   // UI states: calling | ringing(callee pre-answer) | active | ended
   late bool _isCalleeWaiting = !widget.isCaller && !widget.autoJoin;
 
+  // ── Audio (ringback for caller / ringtone for callee) ──
+  final AudioPlayer _ringPlayer = AudioPlayer();
+
+  // Presence/diagnostic state — [NEW 2026-09-04] online vs offline peers.
+  bool? _peerOnline; // null = not yet resolved
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +112,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _callDurationTimer?.cancel();
+    unawaited(_ringPlayer.dispose());
     unawaited(_cleanup());
     super.dispose();
   }
@@ -176,6 +184,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 _callStartTime ??= DateTime.now();
               });
               _startDurationTimer();
+              unawaited(_stopRingAudio());
               unawaited(_startPlayingRemote());
             } else if (updateType == ZegoUpdateType.Delete) {
               _endCall(remoteHungUp: true);
@@ -251,9 +260,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       // Join immediately (caller rings; callee joins after tapping Answer).
       if (!widget.isCaller && !widget.autoJoin) {
         // Callee dialog path — wait for answer before joining.
+        unawaited(_startRingAudio());
         return;
       }
       await _joinRoom();
+
+      // [NEW 2026-09-04] Resolve peer presence so we can label the ring as
+      // "Ringing…" (online) or "Calling…" (offline, awaiting their return).
+      // Ringback tone starts for the caller and stays until a peer joins.
+      unawaited(_resolvePeerPresence());
+      unawaited(_startRingAudio());
     } catch (e) {
       if (mounted) {
         setState(() {});
@@ -420,11 +436,46 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     await _joinRoom();
   }
 
+  /// [NEW 2026-09-04] Start looping ring audio.
+  ///   • Caller → ringback tone (what they hear while the peer's phone rings).
+  ///   • Callee → incoming ringtone (their phone rings pre-answer).
+  Future<void> _startRingAudio() async {
+    try {
+      await _ringPlayer.setReleaseMode(ReleaseMode.loop);
+      await _ringPlayer.stop();
+      await _ringPlayer.play(
+        AssetSource(widget.isCaller
+            ? 'audio/ringback_tone.wav'
+            : 'audio/ringtone.wav'),
+      );
+    } catch (_) {
+      // Audio is best-effort; never fail the call because a tone didn't load.
+    }
+  }
+
+  /// Stop ring audio (called on connect, hangup, decline, or disposal).
+  Future<void> _stopRingAudio() async {
+    try {
+      await _ringPlayer.stop();
+    } catch (_) {}
+  }
+
+  /// [NEW 2026-09-04] Determine whether the peer is online so the UI can label
+  /// the ring correctly: online → "Ringing…", offline → "Calling…".
+  Future<void> _resolvePeerPresence() async {
+    final online = await _supabaseService.isUserOnline(widget.peerId);
+    if (!mounted) return;
+    setState(() {
+      _peerOnline = online;
+    });
+  }
+
   bool _ending = false;
   Future<void> _endCall({bool remoteHungUp = false, String? remoteAction}) async {
     if (_ending) return;
     _ending = true;
     _callDurationTimer?.cancel();
+    unawaited(_stopRingAudio());
 
     final durationSeconds = _callDuration.inSeconds;
     if (!_didLogCall) {
@@ -447,15 +498,22 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       } catch (_) {}
     }
 
-    if (mounted && (remoteHungUp || remoteAction != null)) {
+    // [NEW 2026-09-04] Only surface an explicit message for genuine remote
+    // actions. If the peer never connected (offline / unanswered), show a
+    // neutral "No answer" instead of the misleading "Call ended".
+    String? msg;
+    if (remoteAction == 'decline') {
+      msg = 'Call declined';
+    } else if (remoteAction == 'busy') {
+      msg = 'User busy';
+    } else if (remoteHungUp && _connected) {
+      msg = 'Call ended';
+    } else if (remoteHungUp && widget.isCaller) {
+      msg = 'No answer';
+    }
+    if (mounted && msg != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(remoteAction == 'decline'
-              ? 'Call declined'
-              : remoteAction == 'busy'
-                  ? 'User busy'
-                  : 'Call ended'),
-        ),
+        SnackBar(content: Text(msg)),
       );
     }
     if (mounted) Navigator.pop(context);
@@ -584,7 +642,12 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final s = _callDuration.inSeconds % 60;
       return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     }
-    if (widget.isCaller) return _roomJoined ? 'Ringing…' : 'Connecting…';
+    if (widget.isCaller) {
+      // [NEW 2026-09-04] Offline peers show a persistent "Calling…" (we keep
+      // ringing until they come back online / answer), online peers "Ringing…".
+      if (_roomJoined && _peerOnline == false) return 'Calling…';
+      return _roomJoined ? 'Ringing…' : 'Connecting…';
+    }
     return 'Joining…';
   }
 

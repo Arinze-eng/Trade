@@ -8,6 +8,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart' as callaudio;
 import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -115,6 +116,9 @@ class _ChatListScreenState extends State<ChatListScreen>
   // [UPDATE 2026-06-08-LAGFIX] Connectivity tracking for offline handling
   bool _isOnline = true;
 
+  // [NEW 2026-09-04] Ringtone player for the incoming-call dialog.
+  static final callaudio.AudioPlayer _incomingRingPlayer = callaudio.AudioPlayer();
+
   @override
   void initState() {
     super.initState();
@@ -205,6 +209,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<void> _showIncomingCallDialog(String fromId, bool isVideo) async {
     if (!mounted || _dialogOpen) return;
     _dialogOpen = true;
+    // [NEW 2026-09-04] Play the incoming ringtone while the dialog shows.
+    unawaited(_startIncomingRing());
     // Resolve the caller's display info (best-effort, non-blocking).
     var callerName = fromId.substring(0, 8).toUpperCase();
     Map<String, dynamic>? callerProfile;
@@ -254,6 +260,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             onPressed: () {
               Navigator.pop(ctx);
               _dialogOpen = false;
+              unawaited(_stopIncomingRing());
               _supabaseService.logMissedCall(
                 callerId: fromId,
                 receiverId: _supabaseService.currentUser?.id ?? '',
@@ -267,6 +274,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             onPressed: () {
               Navigator.pop(ctx);
               _dialogOpen = false;
+              unawaited(_stopIncomingRing());
               final selfId = _supabaseService.currentUser?.id ?? '';
               if (selfId.isEmpty) return;
               Navigator.push(
@@ -289,7 +297,25 @@ class _ChatListScreenState extends State<ChatListScreen>
         ],
       ),
     );
+    // [NEW 2026-09-04] Stop the ringtone once the dialog is gone (any path).
+    unawaited(_stopIncomingRing());
     _dialogOpen = false;
+  }
+
+  Future<void> _startIncomingRing() async {
+    try {
+      await _incomingRingPlayer.setReleaseMode(callaudio.ReleaseMode.loop);
+      await _incomingRingPlayer.stop();
+      await _incomingRingPlayer.play(
+        callaudio.AssetSource('audio/ringtone.wav'),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _stopIncomingRing() async {
+    try {
+      await _incomingRingPlayer.stop();
+    } catch (_) {}
   }
 
   Future<void> _initApp() async {

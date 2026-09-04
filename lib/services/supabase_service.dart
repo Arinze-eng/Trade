@@ -327,6 +327,29 @@ class SupabaseService {
     await _client.rpc('touch_last_seen');
   }
 
+  /// [NEW 2026-09-04] Determine whether a peer is currently "online" by their
+  /// `last_seen` timestamp. A user is considered online if their last_seen is
+  /// within [onlineWindow]. Uses a short timeout so presence never blocks the
+  /// call UI; returns true (assume reachable) on failure so we still ring.
+  Future<bool> isUserOnline(String userId) async {
+    try {
+      final row = await _client
+          .from('profiles')
+          .select('last_seen, hide_last_seen')
+          .eq('id', userId)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 6));
+      if (row == null) return false;
+      if (row['hide_last_seen'] == true) return true; // can't know → assume online
+      final lastSeen = DateTime.tryParse((row['last_seen'] ?? '').toString());
+      if (lastSeen == null) return false;
+      return DateTime.now().toUtc().difference(lastSeen) <
+          const Duration(minutes: 2);
+    } catch (_) {
+      return true; // offline check failed → be safe and ring
+    }
+  }
+
   Stream<Map<String, dynamic>> streamProfile(String userId) {
     return _client
         .from('profiles')
@@ -913,11 +936,12 @@ class SupabaseService {
     // [UPDATE #2] Trigger push notification for incoming call via FCM
     // This ensures the callee gets notified even if app is terminated
     try {
+      final isVideoCall = payload['is_video'] == true || type == 'video_call';
       await _client.functions.invoke('send-push-notification', body: {
         'receiver_id': toId,
         'sender_id': _client.auth.currentUser?.id ?? '',
         'message_type': 'call',
-        'content': type == 'video_call' ? 'Video call' : 'Voice call',
+        'content': isVideoCall ? 'Video call' : 'Voice call',
         'type': 'call',
       });
     } catch (_) {}

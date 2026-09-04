@@ -24,8 +24,9 @@ class ZegoConfig {
   static const int defaultAppId = 1113839402;
 
   /// ZegoCloud project App Sign (64-char hex secret).
+  /// [UPDATE 2026-09-04] Using the project's active App Sign supplied by owner.
   static const String defaultAppSign =
-      '99544bb2296c89d8aa4bdc6cb2c86e2ca1f101976743f9cb40b53fb94a1b3191';
+      'aec83fd5a924460c8fb842ddee588549';
 
   /// [NEW] Load the active Zego credentials from Supabase `app_settings`,
   /// falling back to [defaultAppId] / [defaultAppSign] when not overridden.

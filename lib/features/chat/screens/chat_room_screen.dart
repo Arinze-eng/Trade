@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart' as callaudio;
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -55,6 +56,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   final _imagePicker = ImagePicker();
   final _recorder = AudioRecorder();
   final _audioPlayer = AudioPlayer();
+
+  // [NEW 2026-09-04] Ringtone player for the incoming-call dialog (uses
+  // audioplayers so it won't clash with the just_audio AudioPlayer above).
+  final callaudio.AudioPlayer _ringPlayer = callaudio.AudioPlayer();
 
   final Map<int, String> _signedUrlCache = {};
   final Map<int, String> _localMediaCache = {};
@@ -427,6 +432,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
   }
 
   void _showIncomingCallDialog(String fromId, bool isVideo) {
+    bool dialogDone = false;
+    void stopRing() {
+      if (!dialogDone) {
+        dialogDone = true;
+        unawaited(_ringPlayer.stop());
+      }
+    }
+
+    // [NEW 2026-09-04] Ring the callee's phone while the dialog is up.
+    unawaited(() async {
+      try {
+        await _ringPlayer.setReleaseMode(callaudio.ReleaseMode.loop);
+        await _ringPlayer.stop();
+        await _ringPlayer.play(callaudio.AssetSource('audio/ringtone.wav'));
+      } catch (_) {}
+    }());
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -442,6 +464,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
+              stopRing();
               _supabaseService.logMissedCall(
                 callerId: fromId,
                 receiverId: widget.currentUser['id'],
@@ -453,6 +476,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
+              stopRing();
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -471,7 +495,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
           ),
         ],
       ),
-    );
+    ).whenComplete(() => stopRing());
   }
 
   Future<void> _loadWallpaper() async {
@@ -539,6 +563,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with TickerProviderStat
     _scrollController.dispose();
     _audioPlayer.dispose();
     _recorder.dispose();
+    _ringPlayer.dispose();
     _typingSub?.cancel();
     _typingDebounceTimer?.cancel();
     _callSignalSub?.cancel();
