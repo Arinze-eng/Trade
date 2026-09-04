@@ -39,6 +39,9 @@ class _AdminScreenState extends State<AdminScreen> {
   // [NEW 2026-09-02] Netchat AI token management
   final _aiTokenController = TextEditingController();
   bool _savingAiToken = false;
+  // [NEW 2026-09-04] Netchat AI base URL management
+  final _aiBaseUrlController = TextEditingController();
+  bool _savingAiBaseUrl = false;
   final _searchController = TextEditingController();
 
   // [NEW 2026-09-03] ZegoCloud AppID / AppSign override (replaces Agora).
@@ -53,6 +56,7 @@ class _AdminScreenState extends State<AdminScreen> {
     _passwordController.dispose();
     _vpnConfigController.dispose();
     _aiTokenController.dispose();
+    _aiBaseUrlController.dispose();
     _zegoAppIdController.dispose();
     _zegoAppSignController.dispose();
     _searchController.dispose();
@@ -96,6 +100,8 @@ class _AdminScreenState extends State<AdminScreen> {
         _vpnConfigController.text = (remoteLink ?? '').trim();
         _signupFpEnabled = fpEnabled;
       });
+      // Prefill the Netchat AI token / base URL fields with the active values.
+      await _loadAiSettings();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -529,6 +535,55 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  // ─── Netchat AI base URL management [NEW 2026-09-04] ───
+  Future<void> _loadAiSettings() async {
+    if (!mounted) return;
+    final token = await NetchatAiService.resolveToken();
+    final url = await NetchatAiService.resolveBaseUrl();
+    if (!mounted) return;
+    setState(() {
+      // Only prefill if the admin hasn't typed anything yet.
+      if (_aiTokenController.text.trim().isEmpty) {
+        _aiTokenController.text = token;
+      }
+      if (_aiBaseUrlController.text.trim().isEmpty) {
+        _aiBaseUrlController.text = url;
+      }
+    });
+  }
+
+  Future<void> _saveAiBaseUrl() async {
+    final url = _aiBaseUrlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AI base URL cannot be empty'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Base URL must start with http:// or https://'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+    setState(() => _savingAiBaseUrl = true);
+    try {
+      await NetchatAiService.setAdminBaseUrl(url);
+      NetchatAiService.invalidateCache();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Netchat AI base URL updated ✓'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save AI base URL: $e'), backgroundColor: Colors.redAccent),
+      );
+    } finally {
+      if (mounted) setState(() => _savingAiBaseUrl = false);
+    }
+  }
+
   // ─── ZegoCloud AppID / AppSign override [NEW 2026-09-03] ───
   Future<void> _saveZegoConfig() async {
     final appIdStr = _zegoAppIdController.text.trim();
@@ -831,6 +886,46 @@ class _AdminScreenState extends State<AdminScreen> {
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.save_rounded),
                           label: const Text('Save AI Token'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
+                        ),
+                      ),
+                      // ─── Netchat AI Base URL [NEW 2026-09-04] ───
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Icon(Icons.link_rounded, color: Colors.pinkAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Netchat AI Base URL',
+                              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Endpoint used by the in-app Netchat AI. Change this to point the AI at a different PowerX server.',
+                          style: GoogleFonts.poppins(color: Colors.white54, fontSize: 11)),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _aiBaseUrlController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'https://…/v1/chat/completions',
+                          hintStyle: const TextStyle(color: Colors.white30),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.06),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _savingAiBaseUrl ? null : _saveAiBaseUrl,
+                          icon: _savingAiBaseUrl
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.link_rounded),
+                          label: const Text('Save AI Base URL'),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
                         ),
                       ),

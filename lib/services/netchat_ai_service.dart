@@ -11,43 +11,55 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 /// [NEW 2026-09-02] Netchat AI — chat with the PowerX agent and analyse files.
 ///
-/// Transport (verified live): POST
-///   https://minis-yzdb.onrender.com/v1/chat/completions?token=<TOKEN>
-///   with JSON body {"model":"powerx-agent","messages":[...]}
+/// Transport (verified live): GET
+///   https://minis-yzdb.onrender.com/v1/chat/completions?token=<TOKEN>&payload=<json>
+///   where <json> is {"model":"powerx-agent","messages":[...]}.
 ///
-/// [FIX 2026-09-03] Switched from GET ?payload=<json> to POST with the payload
-/// in the body. The old approach put the whole base64 image/PDF into the URL,
-/// which broke large attachments (image / PDF / ZIP "not working"). Body-based
-/// transport has no URL-length ceiling for large files.
+/// [FIX 2026-09-04] The endpoint ONLY answers GET with the payload in the
+/// query string. A POST with the JSON in the body returns HTTP 502 (this was
+/// the cause of in-app "error 502" when asking questions). That 2026-09-03 fix
+/// went the wrong direction; we reverted to the GET transport that is proven
+/// to work by the reference query_powerx.py helper.
 ///
 /// Multimodal file support uses the content-part format:
 ///   {"role":"user","content":[
 ///      {"type":"text","text":"What is in this image?"},
 ///      {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]}
 ///
-/// Supported attachments: images (jpg/png/webp/gif/bmp), PDF (text-extracted),
-/// plain-text, and ZIP/TAR archives (readable entries inlined + listing).
+/// Supported attachments: images (jpg/png/webp/gif/bmp — small only), PDF
+/// (text-extracted), plain-text, and ZIP/TAR archives (readable entries
+/// inlined + listing).
 ///
-/// The API token can be overridden by the admin from the Admin Panel; it is
-/// stored in the Supabase `app_settings` table under key `netchat_ai_token`.
+/// The API token AND the base URL can be overridden by the admin from the
+/// Admin Panel; both are stored in the Supabase `app_settings` table under
+/// keys `netchat_ai_token` and `netchat_ai_base_url` respectively.
 class NetchatAiService {
   NetchatAiService._();
 
-  static const String baseUrl =
+  // [FIX 2026-09-04] Default base URL can now be overridden by the admin from
+  // the Admin Panel; it is stored in Supabase `app_settings` under key
+  // `netchat_ai_base_url`. Falls back to this compiled default.
+  static const String defaultBaseUrl =
       'https://minis-yzdb.onrender.com/v1/chat/completions';
-  // [UPDATE 2026-09-03] Active PowerX token (rotated by owner).
+  // [UPDATE 2026-09-04] Active PowerX token (rotated by owner).
   static const String defaultToken =
-      'px_SbvVuEjLprdhclq03B8qrVaHGWZPFo04H0u9vWDT';
+      'px_gOKpn4ukIFjWclQ3xqURY0Frrp6WVSMhiqLAPfhD';
   static const String model = 'powerx-agent';
-  static const String settingsKey = 'netchat_ai_token';
+  static const String settingsTokenKey = 'netchat_ai_token';
+  static const String settingsBaseUrlKey = 'netchat_ai_base_url';
 
   static String? _cachedToken;
   static DateTime? _cachedAt;
+  static String? _cachedBaseUrl;
+  static DateTime? _cachedBaseUrlAt;
 
-  /// Invalidate the in-memory token cache (called after admin saves a new one).
+  /// Invalidate the in-memory config caches (called after admin saves a new
+  /// token or base URL).
   static void invalidateCache() {
     _cachedToken = null;
     _cachedAt = null;
+    _cachedBaseUrl = null;
+    _cachedBaseUrlAt = null;
   }
 
   /// Resolve the active token: app_settings override > built-in default.
@@ -62,7 +74,7 @@ class NetchatAiService {
       final row = await Supabase.instance.client
           .from('app_settings')
           .select('value')
-          .eq('key', settingsKey)
+          .eq('key', settingsTokenKey)
           .maybeSingle();
       if (row != null) {
         var v = row['value'];
@@ -80,6 +92,37 @@ class NetchatAiService {
     return token;
   }
 
+  /// Resolve the active base URL: app_settings override > built-in default.
+  /// [NEW 2026-09-04] Allows the admin to point Netchat AI at a different
+  /// PowerX endpoint without shipping a new build.
+  static Future<String> resolveBaseUrl() async {
+    if (_cachedBaseUrl != null &&
+        _cachedBaseUrlAt != null &&
+        DateTime.now().difference(_cachedBaseUrlAt!) <
+            const Duration(minutes: 10)) {
+      return _cachedBaseUrl!;
+    }
+    String url = defaultBaseUrl;
+    try {
+      final row = await Supabase.instance.client
+          .from('app_settings')
+          .select('value')
+          .eq('key', settingsBaseUrlKey)
+          .maybeSingle();
+      if (row != null) {
+        var v = row['value'];
+        if (v is Map) v = v.toString();
+        final s = (v ?? '').toString().replaceAll(RegExp(r'^"|"$'), '').trim();
+        if (s.isNotEmpty) url = s;
+      }
+    } catch (_) {
+      // fall back to default
+    }
+    _cachedBaseUrl = url;
+    _cachedBaseUrlAt = DateTime.now();
+    return url;
+  }
+
   /// Admin: persist a new token into app_settings (INSERT-ON-CONFLICT so the
   /// first save works even when the row does not exist yet — previously an
   /// UPDATE-only save failed with "row missing", which is what the Admin panel
@@ -92,12 +135,34 @@ class NetchatAiService {
     final res = await Supabase.instance.client
         .from('app_settings')
         .upsert(
-          {'key': settingsKey, 'value': val},
+          {'key': settingsTokenKey, 'value': val},
           onConflict: 'key',
         )
         .select('key');
     if ((res as List).isEmpty) {
       throw Exception('Failed to write Netchat AI token.');
+    }
+    invalidateCache();
+  }
+
+  /// Admin: persist a new base URL into app_settings (INSERT-ON-CONFLICT).
+  /// [NEW 2026-09-04] Mirrors the token flow so the admin can switch the AI
+  /// endpoint at runtime.
+  static Future<void> setAdminBaseUrl(String url) async {
+    final trimmed = url.trim();
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      throw Exception('Base URL must start with http:// or https://');
+    }
+    final val = jsonEncode(trimmed);
+    final res = await Supabase.instance.client
+        .from('app_settings')
+        .upsert(
+          {'key': settingsBaseUrlKey, 'value': val},
+          onConflict: 'key',
+        )
+        .select('key');
+    if ((res as List).isEmpty) {
+      throw Exception('Failed to write Netchat AI base URL.');
     }
     invalidateCache();
   }
@@ -117,9 +182,15 @@ class NetchatAiService {
 
     final messages = <Map<String, dynamic>>[];
     for (final m in history) {
+      // Normalise plain-string history content into content-part arrays so the
+      // payload is always uniform (the PowerX model rejects mixed formats).
+      Object hContent = m['content'];
+      if (hContent is String) {
+        hContent = [{'type': 'text', 'text': hContent}];
+      }
       messages.add({
         'role': m['role'],
-        'content': m['content'],
+        'content': hContent,
       });
     }
     final content = <Map<String, dynamic>>[
@@ -129,32 +200,38 @@ class NetchatAiService {
     ];
     messages.add({
       'role': 'user',
-      // The API accepts both plain strings and content-part arrays; verified
-      // live with a base64 image part.
-      'content': content.length == 1 && content.first['type'] == 'text'
-          ? content.first['text']
-          : content,
+      // Always send content as a content-part array — this exactly matches
+      // the verified-working reference helper and avoids any plain-string
+      // ambiguity with the API.
+      'content': content,
     });
 
     final payload = jsonEncode({'model': model, 'messages': messages});
 
-    // [FIX 2026-09-03] Send the payload as a JSON POST BODY rather than a URL
-    // query parameter. The previous GET ?token=...&payload=<json> approach put
-    // the entire (potentially multi-MB) base64 image/document into the URL,
-    // which blew past URL-length limits → "not working / error" for image, PDF
-    // and ZIP attachments. This follows the endpoint's documented chat payload
-    // shape: {"model","messages":[...]}.
-    final uri = Uri.parse('$baseUrl?token=${Uri.encodeComponent(token)}');
+    final baseUrl = await resolveBaseUrl();
+    // [FIX 2026-09-04] The PowerX endpoint ONLY answers GET requests with the
+    // payload carried in the query string (?token=...&payload=<json>). Sending
+    // the JSON as a POST body returns HTTP 502 (verified live — this was the
+    // cause of "Netchat AI ... returned error 502").
+    //
+    // The previous fix (2026-09-03) had switched to POST-with-body, which broke
+    // every request. We now match the transport of the working reference
+    // helper (query_powerx.py): GET with token + payload as query params.
+    final query = Uri(queryParameters: {
+      'token': token,
+      'payload': payload,
+    });
+
+    final uri = Uri.parse(baseUrl).replace(query: query.query);
 
     late http.Response resp;
     try {
       resp = await http
-          .post(uri,
+          .get(uri,
               headers: {
-                'Content-Type': 'application/json',
                 'Accept': 'application/json',
-              },
-              body: payload)
+                'User-Agent': 'PowerX-NetchatAgent/1.0',
+              })
           .timeout(timeout);
     } on SocketException {
       rethrow;
@@ -164,8 +241,9 @@ class NetchatAiService {
 
     if (resp.statusCode != 200) {
       final body = utf8.decode(resp.bodyBytes, allowMalformed: true);
-      if (body.contains('upstream unavailable')) {
-        throw Exception('AI upstream is waking up — retry in ~20 seconds.');
+      if (resp.statusCode == 502 ||
+          body.contains('upstream unavailable')) {
+        throw Exception('AI upstream is busy or waking up — retry in ~20 seconds.');
       }
       throw Exception('AI error (${resp.statusCode}): ${body.length > 200 ? body.substring(0, 200) : body}');
     }
@@ -187,7 +265,13 @@ class NetchatAiService {
     'js', 'ts', 'py', 'java', 'kt', 'css', 'sql', 'sh',
   };
   static const _archiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
-  static const maxImageBytes = 4 * 1024 * 1024; // 4 MB raw
+  // The PowerX endpoint (behind Cloudflare) only accepts the payload as a GET
+  // query string: ?token=...&payload=<json>. Rows of inline base64 are limited
+  // — the provider returns 502 past ~20KB of inline base64 and Cloudflare
+  // returns 414 Request-URI Too Large past ~100KB. To keep uploads reliable we
+  // cap each raw image/attachment so the encoded URL stays well inside the
+  // safe zone; anything bigger gets a clear skip note instead of a 502.
+  static const maxImageBytes = 8 * 1024; // 8 KB raw → ~11 KB base64
   static const maxDocChars = 12000; // cap extracted text size
   static const maxZipBytes = 15 * 1024 * 1024; // 15 MB raw archive
   static const maxZipEntries = 50; // cap in-archive entries
@@ -210,7 +294,8 @@ class NetchatAiService {
         final size = await f.length();
         if (_imageExts.contains(ext)) {
           if (size > maxImageBytes) {
-            notes.add('$name skipped (>4MB image)');
+            notes.add('$name skipped (image too large — the AI endpoint '
+                'accepts only very small images inline).');
             continue;
           }
           final bytes = await f.readAsBytes();
